@@ -1,0 +1,6 @@
+preprocessing:
+  # ROI crop in pixels: [x, y, width, height] from raw 1152x2048 image
+  roi: [320, 860, 475, 410]
+  # Output resolution — change this to try different resolutions
+  # After changing, re-run preprocess.py; output folder is auto-named data/ir_module_<W>x<H>/
+  output_size: [512, 512]

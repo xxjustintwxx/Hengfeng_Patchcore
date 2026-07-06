@@ -1,3 +1,25 @@
-.idea/
+# Pretrained backbone models (2.2GB)
+models/
+
+# Raw and processed dataset images
+data/
+
+# Trained PatchCore model weights
+results/IR_Module/
+
+# Calibration outputs
+calibrate_crop.jpg
+calibrate_preview.jpg
+
+# Python
 __pycache__/
-LabletAnomaly.egg-info/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Misc
+.DS_Store
+tmp/

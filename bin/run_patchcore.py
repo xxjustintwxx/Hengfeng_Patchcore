@@ -185,15 +185,16 @@ def run(
             full_pixel_auroc = pixel_scores["auroc"]
 
             # Compute PRO score & PW Auroc only images with anomalies
-            sel_idxs = []
-            for i in range(len(masks_gt)):
-                if np.sum(masks_gt[i]) > 0:
-                    sel_idxs.append(i)
-            pixel_scores = patchcore.metrics.compute_pixelwise_retrieval_metrics(
-                [segmentations[i] for i in sel_idxs],
-                [masks_gt[i] for i in sel_idxs],
-            )
-            anomaly_pixel_auroc = pixel_scores["auroc"]
+            sel_idxs = [i for i in range(len(masks_gt)) if np.sum(masks_gt[i]) > 0]
+            if sel_idxs:
+                pixel_scores = patchcore.metrics.compute_pixelwise_retrieval_metrics(
+                    [segmentations[i] for i in sel_idxs],
+                    [masks_gt[i] for i in sel_idxs],
+                )
+                anomaly_pixel_auroc = pixel_scores["auroc"]
+            else:
+                LOGGER.info("No ground-truth pixel masks found — skipping anomaly pixel AUROC.")
+                anomaly_pixel_auroc = float("nan")
 
             result_collect.append(
                 {

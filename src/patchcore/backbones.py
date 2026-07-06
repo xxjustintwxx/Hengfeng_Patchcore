@@ -2,12 +2,12 @@ import timm  # noqa
 import torchvision.models as models  # noqa
 
 _BACKBONES = {
-    "alexnet": "models.alexnet(pretrained=True)",
+    "alexnet": "models.alexnet(weights=models.AlexNet_Weights.DEFAULT)",
     "bninception": 'pretrainedmodels.__dict__["bninception"]'
     '(pretrained="imagenet", num_classes=1000)',
-    "resnet50": "models.resnet50(pretrained=True)",
-    "resnet101": "models.resnet101(pretrained=True)",
-    "resnext101": "models.resnext101_32x8d(pretrained=True)",
+    "resnet50": "models.resnet50(weights=models.ResNet50_Weights.DEFAULT)",
+    "resnet101": "models.resnet101(weights=models.ResNet101_Weights.DEFAULT)",
+    "resnext101": "models.resnext101_32x8d(weights=models.ResNeXt101_32X8D_Weights.DEFAULT)",
     "resnet200": 'timm.create_model("resnet200", pretrained=True)',
     "resnest50": 'timm.create_model("resnest50d_4s2x40d", pretrained=True)',
     "resnetv2_50_bit": 'timm.create_model("resnetv2_50x3_bitm", pretrained=True)',
@@ -18,11 +18,11 @@ _BACKBONES = {
     "resnetv2_152_21k": 'timm.create_model("resnetv2_152x4_bitm_in21k", pretrained=True)',
     "resnetv2_152_384": 'timm.create_model("resnetv2_152x2_bit_teacher_384", pretrained=True)',
     "resnetv2_101": 'timm.create_model("resnetv2_101", pretrained=True)',
-    "vgg11": "models.vgg11(pretrained=True)",
-    "vgg19": "models.vgg19(pretrained=True)",
-    "vgg19_bn": "models.vgg19_bn(pretrained=True)",
-    "wideresnet50": "models.wide_resnet50_2(pretrained=True)",
-    "wideresnet101": "models.wide_resnet101_2(pretrained=True)",
+    "vgg11": "models.vgg11(weights=models.VGG11_Weights.DEFAULT)",
+    "vgg19": "models.vgg19(weights=models.VGG19_Weights.DEFAULT)",
+    "vgg19_bn": "models.vgg19_bn(weights=models.VGG19_BN_Weights.DEFAULT)",
+    "wideresnet50": "models.wide_resnet50_2(weights=models.Wide_ResNet50_2_Weights.DEFAULT)",
+    "wideresnet101": "models.wide_resnet101_2(weights=models.Wide_ResNet101_2_Weights.DEFAULT)",
     "mnasnet_100": 'timm.create_model("mnasnet_100", pretrained=True)',
     "mnasnet_a1": 'timm.create_model("mnasnet_a1", pretrained=True)',
     "mnasnet_b1": 'timm.create_model("mnasnet_b1", pretrained=True)',
