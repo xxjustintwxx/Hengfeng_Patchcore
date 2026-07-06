@@ -2,10 +2,10 @@
 # Run PatchCore on IR module PCB images.
 # Data lives locally at data/ir_module/ir_module/{train/good, test/good, test/defect, ground_truth/defect}
 
-DATA_PATH="/work/xxjustin77xx/patchcore-inspection/data/ir_module_256"
-RESULTS_PATH="/work/xxjustin77xx/patchcore-inspection/results"
+DATA_PATH="/work/xxjustin77xx/Hengfeng_Patchcore/data/ir_module_256"
+RESULTS_PATH="/work/xxjustin77xx/Hengfeng_Patchcore/results"
 
-cd /work/xxjustin77xx/patchcore-inspection
+cd /work/xxjustin77xx/Hengfeng_Patchcore
 
 python bin/run_patchcore.py \
   --gpu 0 \

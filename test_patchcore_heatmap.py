@@ -1,7 +1,7 @@
 """
 Load saved PatchCore model and generate side-by-side heatmaps for test images.
 
-Usage (from patchcore-inspection/):
+Usage (from Hengfeng_Patchcore/):
   python test_patchcore_heatmap.py
   python test_patchcore_heatmap.py --model_path results/IR_Module/.../models/mvtec_ir_module
 """
@@ -84,12 +84,24 @@ def make_colorbar(height, width=20):
 
 
 def save_heatmap(orig_bgr, anom_map, score, true_label, out_path,
-                 shared_lo=None, shared_hi=None):
+                 shared_lo=None, shared_hi=None, top_pct=5):
     h, w = orig_bgr.shape[:2]
 
     cm  = to_colormap(anom_map, shared_lo, shared_hi)
     cm  = cv2.resize(cm, (w, h))
     ov  = cv2.addWeighted(orig_bgr, 0.5, cm, 0.5, 0)
+
+    # Top N% panel: dim the image, overlay red only on highest-scoring pixels
+    threshold = np.percentile(anom_map, 100 - top_pct)
+    mask = cv2.resize((anom_map >= threshold).astype(np.uint8), (w, h),
+                      interpolation=cv2.INTER_NEAREST)
+    dimmed = (orig_bgr * 0.35).astype(np.uint8)
+    red_overlay = dimmed.copy()
+    red_overlay[mask == 1] = orig_bgr[mask == 1]
+    red_highlight = np.zeros_like(orig_bgr)
+    red_highlight[:, :, 2] = 180  # red channel
+    red_overlay[mask == 1] = cv2.addWeighted(
+        orig_bgr, 0.4, red_highlight, 0.6, 0)[mask == 1]
 
     is_ng       = true_label == "NG"
     label_color = (0, 0, 200) if is_ng else (0, 150, 0)
@@ -111,11 +123,12 @@ def save_heatmap(orig_bgr, anom_map, score, true_label, out_path,
         return np.vstack([tbar, img, sbar])
 
     panels = [
-        make_panel(orig_bgr, "Original",     None),
-        make_panel(ov,       "Anomaly map",  score),
+        make_panel(orig_bgr,   "Original",              None),
+        make_panel(ov,         "Anomaly map",            score),
+        make_panel(red_overlay, f"Top {top_pct}% anomaly", score),
     ]
     div = np.full((panels[0].shape[0], gap, 3), 200, dtype=np.uint8)
-    row = np.concatenate([panels[0], div, panels[1]], axis=1)
+    row = np.concatenate([panels[0], div, panels[1], div, panels[2]], axis=1)
 
     # Colorbar on the right
     panel_h = panels[0].shape[0]
@@ -183,7 +196,7 @@ def main():
 
     # Auto-detect data_root from resize
     data_root = args.data_root or \
-        f"/work/xxjustin77xx/patchcore-inspection/data/ir_module_{resize}/ir_module"
+        f"/work/xxjustin77xx/Hengfeng_Patchcore/data/ir_module_{resize}/ir_module"
     print(f"Data root:  {data_root}")
     print(f"Resize: {resize}  Cropsize: {cropsize}")
 
