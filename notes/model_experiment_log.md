@@ -142,6 +142,72 @@ Tracks configuration changes, score evolution, and key findings across model ver
 
 ---
 
+## Rotation Consistency Test — `ir_module_WR50_L2-3_PS3_1024_aug_p0.1`
+
+### Motivation
+In production the PCB can enter the camera in any of 4 orientations (0°/90°/180°/270°). The model was trained with all 4 rotations of each good image (via augmentation), but the test set only had 0°. This test adds rot90/180/270 to every test image to evaluate true production-condition robustness.
+
+### Test set expansion
+- `test/good/`: 3 → **12 images** (3 originals + 9 rotated)
+- `test/defect/`: 13 → **52 images** (13 originals + 39 rotated)
+- Blank ground truth masks created for all 39 new defect images
+
+### AUROC on expanded test set: **0.984** (was 1.000)
+- 12 OK × 52 NG = 624 pairs; ~10 pairs inverted
+- Root cause: two images fail at specific orientations (see below)
+
+### Rotation consistency scores
+
+| Image | 0° | rot A | rot B | rot C | Spread | Label |
+|-------|-----|-------|-------|-------|--------|-------|
+| IMG-14 | 213.79 | **222.64** | 217.39 | 215.59 | 8.85 | OK |
+| IMG-15 | 183.23 | 180.61 | 185.64 | **219.10** | **38.49** | OK ← spike |
+| IMG-16 | 181.65 | 207.25 | 213.10 | 191.32 | 31.45 | OK |
+| defect-01 | 280.32 | 300.40 | 282.25 | 294.68 | 20.08 | NG |
+| defect-02 | 242.54 | 239.66 | 245.32 | 242.65 | 5.66 | NG |
+| defect-03 | 252.15 | 251.01 | 241.43 | 243.66 | 10.72 | NG |
+| defect-04 | 292.53 | 299.41 | 279.27 | 311.87 | 32.60 | NG |
+| defect-05 | 258.03 | 260.77 | 268.16 | 251.34 | 16.82 | NG |
+| defect-06 | 292.39 | 267.49 | 265.70 | 290.94 | 26.69 | NG |
+| defect-07 | **216.91** | 239.62 | 221.46 | 233.57 | 22.71 | NG ← miss at 0° |
+| defect-08 | 255.29 | 259.15 | 257.96 | 254.15 | 5.00 | NG |
+| defect-09 | 234.18 | 225.79 | **213.01** | 244.19 | **31.18** | NG ← miss at rot B |
+| defect-10 | 254.48 | 259.04 | 243.32 | 278.39 | 35.07 | NG |
+| defect-11 | 287.06 | 314.09 | 276.21 | 292.81 | 37.87 | NG |
+| defect-12 | 255.05 | 235.14 | 230.55 | 248.73 | 24.51 | NG |
+| defect-13 | 294.69 | 278.96 | 278.15 | 272.84 | 21.85 | NG |
+
+*(rot A/B/C = the three non-original orientations; exact angle mapping is alphabetically sorted, not guaranteed 90→180→270)*
+
+### Key findings
+
+**IMG-15 spike (spread 38.49):** At three orientations scores 180–186, but at one specific orientation jumps to **219.10** — almost triggering a false alarm. This is screw-orientation sensitivity: that rotation places a screw slot in a position the memory bank hasn't learned well, despite including all 4 fixed rotations in training. The ±20° random augmentation didn't cover this particular alignment.
+
+**IMG-16 variation (spread 31.45, max 213.10):** Large spread but all 4 scores remain below the NG floor (239.62 with TTA). Variation is screw-driven, not a defect signal. IMG-16 is a true good board.
+
+**defect-07 at 0° = 216.91:** Still the hardest NG case. At 0° it gets beaten by IMG-14 and IMG-15's spike rotation. At other orientations it scores 221–240, well clear of OK.
+
+**defect-09 min = 213.01:** The most dangerous miss — at one orientation it scores 213.01, below most OK scores. The defect is very subtle and effectively invisible from this angle. At other orientations it scores 225–244.
+
+### Test-Time Augmentation (TTA) — max over 4 rotations
+
+If in production the board is captured at all 4 orientations and we take the **maximum score**, the threshold analysis becomes:
+
+| | Max score across 4 rotations |
+|--|--|
+| OK ceiling (worst good board) | **222.64** (IMG-14) |
+| NG floor (easiest-to-miss defect) | **239.62** (defect-07) |
+| Gap | **~17 points** |
+
+TTA AUROC = **1.000** — all pairs correctly ordered with a 17-point margin (vs the previous 3-point margin). This is the recommended production approach if multi-orientation capture is feasible.
+
+### Remaining concerns
+- The 17-point TTA gap is still not wide. More good training images would widen it.
+- defect-09 is barely detectable even with TTA (max=244 vs OK ceiling=222, gap=21). Its defect may be too subtle for patch-level features alone.
+- IMG-15's 38-point spread shows the memory bank still has orientation gaps. Denser random rotation augmentation (8 random samples across full 360° instead of 2 at ±20°) is the next logical training improvement.
+
+---
+
 ## Model 4 — `ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1`
 
 ### Configuration changes vs Model 3
@@ -206,82 +272,6 @@ Paths forward for defect-09:
 1. Relabel as OK if the defect is below acceptable severity
 2. Collect more diverse good training images to push the OK ceiling below 210
 3. Apply a targeted strategy (higher-resolution ROI crop of defect region, or a separate classifier)
-
----
-
-## ROI Calibration History
-
-| Version | ROI [x, y, w, h] | Note |
-|---------|------------------|------|
-| Old camera (1152×2048) | `[320, 860, 475, 410]` | Original calibration |
-| New camera initial | `[640, 1720, 950, 820]` | ~2× scale, but top screws cut off |
-| **New camera final** | **`[640, 1620, 950, 820]`** | y moved up 100px, all 4 screws visible |
-
----
-
-## Rotation Consistency Test — `ir_module_WR50_L2-3_PS3_1024_aug_p0.1`
-
-### Motivation
-In production the PCB can enter the camera in any of 4 orientations (0°/90°/180°/270°). The model was trained with all 4 rotations of each good image (via augmentation), but the test set only had 0°. This test adds rot90/180/270 to every test image to evaluate true production-condition robustness.
-
-### Test set expansion
-- `test/good/`: 3 → **12 images** (3 originals + 9 rotated)
-- `test/defect/`: 13 → **52 images** (13 originals + 39 rotated)
-- Blank ground truth masks created for all 39 new defect images
-
-### AUROC on expanded test set: **0.984** (was 1.000)
-- 12 OK × 52 NG = 624 pairs; ~10 pairs inverted
-- Root cause: two images fail at specific orientations (see below)
-
-### Rotation consistency scores
-
-| Image | 0° | rot A | rot B | rot C | Spread | Label |
-|-------|-----|-------|-------|-------|--------|-------|
-| IMG-14 | 213.79 | **222.64** | 217.39 | 215.59 | 8.85 | OK |
-| IMG-15 | 183.23 | 180.61 | 185.64 | **219.10** | **38.49** | OK ← spike |
-| IMG-16 | 181.65 | 207.25 | 213.10 | 191.32 | 31.45 | OK |
-| defect-01 | 280.32 | 300.40 | 282.25 | 294.68 | 20.08 | NG |
-| defect-02 | 242.54 | 239.66 | 245.32 | 242.65 | 5.66 | NG |
-| defect-03 | 252.15 | 251.01 | 241.43 | 243.66 | 10.72 | NG |
-| defect-04 | 292.53 | 299.41 | 279.27 | 311.87 | 32.60 | NG |
-| defect-05 | 258.03 | 260.77 | 268.16 | 251.34 | 16.82 | NG |
-| defect-06 | 292.39 | 267.49 | 265.70 | 290.94 | 26.69 | NG |
-| defect-07 | **216.91** | 239.62 | 221.46 | 233.57 | 22.71 | NG ← miss at 0° |
-| defect-08 | 255.29 | 259.15 | 257.96 | 254.15 | 5.00 | NG |
-| defect-09 | 234.18 | 225.79 | **213.01** | 244.19 | **31.18** | NG ← miss at rot B |
-| defect-10 | 254.48 | 259.04 | 243.32 | 278.39 | 35.07 | NG |
-| defect-11 | 287.06 | 314.09 | 276.21 | 292.81 | 37.87 | NG |
-| defect-12 | 255.05 | 235.14 | 230.55 | 248.73 | 24.51 | NG |
-| defect-13 | 294.69 | 278.96 | 278.15 | 272.84 | 21.85 | NG |
-
-*(rot A/B/C = the three non-original orientations; exact angle mapping is alphabetically sorted, not guaranteed 90→180→270)*
-
-### Key findings
-
-**IMG-15 spike (spread 38.49):** At three orientations scores 180–186, but at one specific orientation jumps to **219.10** — almost triggering a false alarm. This is screw-orientation sensitivity: that rotation places a screw slot in a position the memory bank hasn't learned well, despite including all 4 fixed rotations in training. The ±20° random augmentation didn't cover this particular alignment.
-
-**IMG-16 variation (spread 31.45, max 213.10):** Large spread but all 4 scores remain below the NG floor (239.62 with TTA — see below). Variation is screw-driven, not a defect signal. The user suspected IMG-16 might have a tiny defect; the heatmap hotspots at higher-scoring rotations appear on screws, not PCB body — likely a true good board.
-
-**defect-07 at 0° = 216.91:** Still the hardest NG case. At 0° it gets beaten by IMG-14 and IMG-15's spike rotation. At other orientations it scores 221–240, well clear of OK.
-
-**defect-09 min = 213.01:** The most dangerous miss — at one orientation it scores 213.01, *below* most OK scores. The defect is very subtle and effectively invisible from this angle. At other orientations it scores 225–244.
-
-### Test-Time Augmentation (TTA) — max over 4 rotations
-
-If in production the board is captured at all 4 orientations and we take the **maximum score**, the threshold analysis becomes:
-
-| | Max score across 4 rotations |
-|--|--|
-| OK ceiling (worst good board) | **222.64** (IMG-14) |
-| NG floor (easiest-to-miss defect) | **239.62** (defect-07) |
-| Gap | **~17 points** |
-
-TTA AUROC = **1.000** — all pairs correctly ordered with a 17-point margin (vs the previous 3-point margin in the single-orientation evaluation). This is the recommended production approach if multi-orientation capture is feasible.
-
-### Remaining concerns
-- The 17-point TTA gap is still not wide — a genuinely ambiguous board could close it. More good training images would widen it.
-- defect-09 is barely detectable even with TTA (max=244 vs OK ceiling=222, gap=21). Its defect may be too subtle for patch-level features alone.
-- IMG-15's 38-point spread shows the memory bank still has orientation gaps even after augmentation. Denser random rotation augmentation (e.g. 8 random samples across full 360° instead of 2 at ±20°) is the next logical training improvement.
 
 ---
 
