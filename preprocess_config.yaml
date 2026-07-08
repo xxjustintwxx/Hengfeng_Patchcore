@@ -1,8 +1,8 @@
 preprocessing:
   # ROI crop in pixels: [x, y, width, height]
   # Old 1152x2048 images: [320, 860, 475, 410]
-  # New 2268x4032 images: ~2x scale
-  roi: [640, 1720, 950, 820]
+  # New 2268x4032 images: ~2x scale, y moved up 100px to include top screws
+  roi: [640, 1620, 950, 820]
   # Output resolution — change this to try different resolutions
   # After changing, re-run preprocess.py; output folder is auto-named data/ir_module_<W>x<H>/
   output_size: [1024, 1024]

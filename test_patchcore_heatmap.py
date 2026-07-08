@@ -19,6 +19,7 @@ from torchvision import transforms
 import patchcore.backbones
 import patchcore.common
 import patchcore.patchcore
+from sklearn.metrics import roc_auc_score
 
 OUTPUT_DIR  = None  # derived from model path at runtime
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -107,19 +108,19 @@ def save_heatmap(orig_bgr, anom_map, score, true_label, out_path,
     label_color = (0, 0, 200) if is_ng else (0, 150, 0)
     grey        = (60, 60, 60)
 
-    title_h, score_h, gap = 30, 34, 6
+    title_h, score_h, gap = 46, 50, 6
 
     def make_panel(img, title, sc):
         tbar = np.full((title_h, w, 3), 40, dtype=np.uint8)
-        (tw, _), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.putText(tbar, title, ((w - tw) // 2, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (210, 210, 210), 1, cv2.LINE_AA)
+        (tw, _), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+        cv2.putText(tbar, title, ((w - tw) // 2, 32),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (210, 210, 210), 2, cv2.LINE_AA)
         sbar = np.full((score_h, w, 3), 255, dtype=np.uint8)
         if sc is not None:
             txt = f"score: {sc:.4f}"
-            (sw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 1)
-            cv2.putText(sbar, txt, ((w - sw) // 2, 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, grey, 1, cv2.LINE_AA)
+            (sw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+            cv2.putText(sbar, txt, ((w - sw) // 2, 34),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, grey, 2, cv2.LINE_AA)
         return np.vstack([tbar, img, sbar])
 
     panels = [
@@ -141,21 +142,21 @@ def save_heatmap(orig_bgr, anom_map, score, true_label, out_path,
     # Show this image's actual value range on the colorbar (not the shared range)
     img_hi = float(np.percentile(anom_map, 99))
     img_lo = float(np.percentile(anom_map, 1))
-    cv2.putText(cb_col, "High",           (2, y0 - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (60,60,60), 1, cv2.LINE_AA)
-    cv2.putText(cb_col, f"{img_hi:.1f}",  (2, y0 - 6),  cv2.FONT_HERSHEY_SIMPLEX, 0.30, (100,100,100), 1, cv2.LINE_AA)
-    cv2.putText(cb_col, f"{img_lo:.1f}",  (2, y0 + cb_img_h + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (100,100,100), 1, cv2.LINE_AA)
-    cv2.putText(cb_col, "Low",            (2, y0 + cb_img_h + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (60,60,60), 1, cv2.LINE_AA)
+    cv2.putText(cb_col, "High",           (2, y0 - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (60,60,60), 1, cv2.LINE_AA)
+    cv2.putText(cb_col, f"{img_hi:.1f}",  (2, y0 - 6),  cv2.FONT_HERSHEY_SIMPLEX, 0.50, (100,100,100), 1, cv2.LINE_AA)
+    cv2.putText(cb_col, f"{img_lo:.1f}",  (2, y0 + cb_img_h + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (100,100,100), 1, cv2.LINE_AA)
+    cv2.putText(cb_col, "Low",            (2, y0 + cb_img_h + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (60,60,60), 1, cv2.LINE_AA)
     row = np.concatenate([row, cb_col], axis=1)
     W = row.shape[1]
 
     # Verdict banner
-    banner_h = 42
+    banner_h = 60
     banner = np.full((banner_h, W, 3), 255, dtype=np.uint8)
     txt = f"{true_label}   |   score = {score:.4f}"
-    (vw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_DUPLEX, 0.65, 1)
-    cv2.putText(banner, txt, ((W - vw) // 2, 26),
-                cv2.FONT_HERSHEY_DUPLEX, 0.65, label_color, 2, cv2.LINE_AA)
-    cv2.rectangle(banner, (0, banner_h - 5), (W, banner_h), label_color, -1)
+    (vw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_DUPLEX, 1.0, 2)
+    cv2.putText(banner, txt, ((W - vw) // 2, 38),
+                cv2.FONT_HERSHEY_DUPLEX, 1.0, label_color, 2, cv2.LINE_AA)
+    cv2.rectangle(banner, (0, banner_h - 6), (W, banner_h), label_color, -1)
 
     canvas = np.vstack([row, banner])
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -186,12 +187,11 @@ def main():
     log_group = Path(model_path).parts[-3]
     output_dir = os.path.join("results", "heatmaps", log_group)
 
-    # Auto-detect resize from log_group suffix (e.g. _512 → 512, else 256)
+    # Auto-detect resize from log_group: find the last all-digit token (e.g. _1024_aug_p0.1 → 1024)
     resize = args.resize
     if resize is None:
-        parts = log_group.split("_")
-        last = parts[-1]
-        resize = int(last) if last.isdigit() else 256
+        digit_parts = [p for p in log_group.split("_") if p.isdigit()]
+        resize = int(digit_parts[-1]) if digit_parts else 256
     cropsize = args.cropsize or resize
 
     # Auto-detect data_root from resize
@@ -239,7 +239,31 @@ def main():
         marker = "!!" if label == "NG" else "  "
         print(f"  {marker} {Path(img_path).name:35s}  score={score:.4f}  [{label}]  → {fname}_patchcore.jpg")
 
-    print(f"\nHeatmaps → {output_dir}/")
+    # Per-original-image rotation consistency table
+    print("\n--- Rotation consistency (original images only) ---")
+    originals = [p for p in all_paths if "_aug_" not in Path(p).stem]
+    for orig_path in originals:
+        stem = Path(orig_path).stem
+        rot_paths = [orig_path] + [p for p in all_paths if Path(p).stem in
+                     (f"{stem}_aug_rot90", f"{stem}_aug_rot180", f"{stem}_aug_rot270")]
+        rot_scores = [all_scores[all_paths.index(p)] for p in rot_paths]
+        rot_labels = [all_labels[all_paths.index(p)] for p in rot_paths]
+        tags = ["  0°", " 90°", "180°", "270°"]
+        score_str = "  ".join(f"{t}={s:.2f}" for t, s in zip(tags, rot_scores))
+        spread = max(rot_scores) - min(rot_scores)
+        label = rot_labels[0]
+        marker = "!!" if label == "NG" else "  "
+        print(f"  {marker} {stem:30s}  {score_str}  spread={spread:.2f}  [{label}]")
+
+    # AUROC over all test images (original + rotated)
+    y_true  = [1 if l == "NG" else 0 for l in all_labels]
+    auroc   = roc_auc_score(y_true, all_scores) if len(set(y_true)) > 1 else float("nan")
+    ok_scores  = [s for s, l in zip(all_scores, all_labels) if l == "OK"]
+    ng_scores  = [s for s, l in zip(all_scores, all_labels) if l == "NG"]
+    print(f"\nAUROC (all {len(all_scores)} images): {auroc:.4f}")
+    print(f"OK  scores — min={min(ok_scores):.2f}  max={max(ok_scores):.2f}")
+    print(f"NG  scores — min={min(ng_scores):.2f}  max={max(ng_scores):.2f}")
+    print(f"Heatmaps → {output_dir}/")
 
 
 if __name__ == "__main__":
