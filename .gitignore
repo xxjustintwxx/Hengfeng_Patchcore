@@ -20,6 +20,18 @@ dist/
 build/
 *.egg
 
+# YOLO training run artifacts (large — weights, plots, csvs)
+results/yolo/pcb_seg/
+results/yolo/pcb_seg_1280/
+results/yolo/pcb_seg_1280_s/
+
+# GIFs
+*.gif
+results/gifs/
+
+# Stray model weight files
+yolo26n.pt
+
 # Misc
 .DS_Store
 tmp/

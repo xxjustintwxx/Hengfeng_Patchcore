@@ -285,9 +285,157 @@ Paths forward for defect-09:
 
 ---
 
+## Integrated Pipeline — YOLO + PatchCore (2026-07-15)
+
+### Overview
+
+A two-stage inspection pipeline was added on top of Model 4:
+
+1. **YOLOv11-seg** — component detection and exact count check (missing / extra component → NG)
+2. **PatchCore (Model 4)** — surface anomaly heatmap; screw regions suppressed post-detection
+3. **Verdict logic** — NG if YOLO issues **OR** PatchCore score ≥ threshold
+
+### YOLO Model History
+
+| Run | Base weights | imgsz | conf (resistor) | Resistor issues |
+|-----|-------------|-------|-----------------|-----------------|
+| nano-640 | yolo11n-seg | 640 | 0.25 | defect-07,10,12 over-counted |
+| nano-1280 | yolo11n-seg | 1280 | 0.55, iou=0.45 | defect-02,03,13 under-count by 1 |
+| **small-1280** | **yolo11s-seg** | **1280** | **0.55, iou=0.45** | **all 35 ✓ on original images** |
+
+Small model trained with added `erasing=0.4` augmentation (random patch erasing to improve partial-occlusion robustness). Early stopped at epoch 245/300. Mask mAP50 improved from 0.933 (nano) → **0.995** (small); overall mask mAP50-95: 0.829 → **0.896**.
+
+### Component Count Results (small-1280, original images)
+
+| Image | Main IC | connecter | resistor | screw | YOLO verdict |
+|-------|---------|-----------|---------|-------|--------------|
+| defect-01 | 1 ✓ | **3 ✗** | **38 ✗** | 4 ✓ | NG — missing connecter, extra resistor |
+| defect-02 through 13 (excl. 01) | 1 ✓ | 4 ✓ | 35 ✓ | 4 ✓ | OK (from YOLO) |
+| good-14, 15, 16 | 1 ✓ | 4 ✓ | 35 ✓ | 4 ✓ | OK |
+
+Expected counts: Main IC=1, connecter=4, resistor=35, screw=4.
+
+### PatchCore Scores with Screw Suppression
+
+> **Note:** These scores differ from earlier sections because screw mask regions are zeroed out (set to sentinel −1) before computing the max score. The heatmap max is taken only over valid (non-screw) pixels. Screw suppression removes the dominant noise source from the PatchCore output.
+
+| Image | Score | Label |
+|-------|-------|-------|
+| IMG-16 | 168.04 | OK |
+| IMG-15 | 173.30 | OK |
+| IMG-14 | 186.33 | OK |
+| IMG-defect-07 | 193.68 | NG |
+| IMG-defect-09 | 200.16 | NG |
+| IMG-defect-03 | 230.55 | NG |
+| IMG-defect-12 | 231.84 | NG |
+| IMG-defect-08 | 233.61 | NG |
+| IMG-defect-02 | 237.44 | NG |
+| IMG-defect-10 | 242.52 | NG |
+| IMG-defect-11 | 248.13 | NG |
+| IMG-defect-05 | 250.67 | NG |
+| IMG-defect-01 | 264.13 | NG |
+| IMG-defect-13 | 265.29 | NG |
+| IMG-defect-06 | 273.73 | NG |
+| IMG-defect-04 | 279.10 | NG |
+
+**OK max: 186.33 — NG min: 193.68 — gap: 7.4 pts**
+
+### Threshold Selection
+
+```
+Threshold = 190  (midpoint of gap: (186.33 + 193.68) / 2)
+```
+
+- All 3 good boards score < 190 → 0 false alarms
+- All 13 defect boards score > 190 → 0 missed defects
+- AUROC = **1.000** on current 16-image test set
+
+**Caveat:** gap is only 7.4 pts with 3 good boards. With more production images the OK ceiling could rise. Monitor and recalibrate if new good boards score above 185.
+
+### Final Verdict Logic
+
+| Condition | Verdict | Banner line 2 |
+|-----------|---------|---------------|
+| YOLO count issue only | NG | `component issues: <class> (got/expected missing/extra)` |
+| PatchCore score ≥ 190 only | NG | `surface anomaly` |
+| Both | NG | `component issues: ... \| surface anomaly` |
+| Neither | OK | *(blank)* |
+
+### Key Config (infer_pcb.py)
+
+```python
+YOLO_WEIGHTS        = "models/yolo/pcb_seg/weights/best.pt"   # yolo11s-seg small-1280
+PATCHCORE_PATH      = "results/IR_Module/ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1/..."
+EXPECTED_EXACT_COUNT = {0:1, 1:4, 2:35, 3:4}
+CLASS_CONF           = {0:0.25, 1:0.25, 2:0.55, 3:0.25}
+SUPPRESS_CLASSES     = {3}        # screws excluded from heatmap
+YOLO_CONF, iou       = 0.25, 0.45
+ANOMALY_THRESH       = 190.0
+```
+
+---
+
 ## Suggested Next Steps
 
 1. **TTA in production** — capture board at all 4 orientations, flag as NG if max score ≥ **224** (midpoint of Model 4 TTA gap: 215.51–233.57); use Model 4 (`aug_rot360_p0.1`)
 2. **Investigate defect-09 visually** — check its heatmap at the two worst orientations; if the anomaly hotspot is on a screw rather than the PCB body, the defect may be untreatable by PatchCore alone
 3. **More good training images** — increasing from 13 to 30+ originals is the most reliable way to push the OK ceiling below 210 and create safe separation from defect-09
 4. **Ground truth masks** — drawing pixel-level defect masks enables `full_pixel_auroc` which validates whether heatmaps localize to the correct area
+
+---
+
+## Inference Speed Investigation — Model 4
+
+### Setup
+- Model: `ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1`
+- Memory bank: **298,188 vectors × 1024-dim** (after approx_greedy_coreset p=0.1 from ~3.0M raw patches)
+- FAISS default: `FaissNN(on_gpu=False, num_workers=4)` → `IndexFlatL2` on CPU
+- Backbone runs on GPU (TWCC); FAISS search runs on CPU
+- Test script: `time_inference.py`
+
+### Baseline timing (TWCC GPU node)
+
+| Method | Vectors searched | Time/image | Gap (OK ceil vs NG floor) |
+|--------|-----------------|-----------|--------------------------|
+| FlatL2 p=0.1 (exact) | 298k | **78.4s** | **30.3 pts** (199.88 vs 230.13) |
+| IVF-PQ nprobe=16 | 298k (quantized) | 1.9s | 0.4 pts — near zero, not usable |
+| IVF-Flat nprobe=16 | ~9k per query | 11.4s | 10.2 pts |
+| FlatL2 p=0.05 subsample | 149k | 39.7s | 10.2 pts |
+| FlatL2 p=0.01 subsample | 30k | 8.2s | **-18.2 pts — breaks classification** |
+
+### Key findings
+
+**IVF-PQ (41× speedup) is unusable.** PQ quantization error at 1024-dim with 64 sub-quantizers averages 10.8 pts per image and peaks at 30.6 pts (IMG-15). The OK ceiling jumps from 199.88 to 220.49, collapsing the gap to 0.4 pts — no robust threshold exists.
+
+**IVF-Flat (7× speedup) partially works.** No quantization error within searched cells, but with nprobe=16 (3% of 512 clusters) the search misses the true nearest neighbour for some patches. IMG-14 inflates from 199.88 → 219.90 (+20 pts), reducing the gap from 30.3 → 10.2 pts. The gap is still positive and AUROC remains 1.000, but the operating margin is much tighter.
+
+Note: IVF-Flat and p=0.05 subsample both happened to give the same summary metrics (OK ceiling=219.90, NG floor=230.13, gap=10.2 pts) because the same two images set the extremes in both cases. Per-image scores are otherwise different — e.g. IMG-15: IVF-Flat=187.26 vs p=0.05=203.43.
+
+**p=0.01 subsample (10× fewer vectors) breaks classification.** The memory bank becomes too sparse; normal patch nearest-neighbour distances are overestimated. IMG-14 (OK) inflates to 268.60, exceeding the NG floor of 250.44 — AUROC drops below 1.0.
+
+### Score shift detail (FlatL2 p=0.1 vs IVF-Flat nprobe=16)
+
+| Image | FlatL2 p=0.1 | IVF-Flat np=16 | diff | label |
+|-------|-------------|---------------|------|-------|
+| IMG-14 | 199.88 | 219.90 | +20.0 | OK ← ceiling inflated |
+| IMG-15 | 187.26 | 187.26 | 0.0 | OK |
+| IMG-16 | 184.93 | 184.93 | 0.0 | OK |
+| defect-07 | 230.13 | 230.13 | 0.0 | NG ← floor unchanged |
+| defect-09 | 232.26 | 232.26 | 0.0 | NG |
+
+### Production deployment consideration
+
+The 78.4s measured on TWCC reflects GPU backbone + CPU FAISS. On a **regular PC without GPU**, backbone inference (WideResNet50 on CPU at 1024×1024) will add significant time on top of FAISS — total could exceed several minutes per image.
+
+### Conclusion — no fast path without retraining
+
+None of the post-hoc index swaps achieve both fast speed and full accuracy at 1024px resolution:
+- IVF-PQ: fast but inaccurate
+- IVF-Flat / p=0.05: moderate speed, reduced gap
+- p=0.01: fast but breaks classification
+
+**Recommended path: retrain at resize=512.**
+- Patches per image: 128×128 → 64×64 (4× fewer query vectors)
+- Memory bank: ~75k vectors (4× smaller index)
+- Estimated FlatL2 time: ~5s on TWCC GPU node; backbone on CPU also 4× lighter
+- Full accuracy preserved (no approximation)
