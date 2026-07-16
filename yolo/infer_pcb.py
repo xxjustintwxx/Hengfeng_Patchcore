@@ -42,7 +42,7 @@ import patchcore.patchcore
 # ── Config ─────────────────────────────────────────────────────────────────────
 YOLO_WEIGHTS   = ROOT / "models/yolo/pcb_seg/weights/best.pt"
 PATCHCORE_PATH = ROOT / "results/IR_Module/ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1/models/mvtec_ir_module"
-OUTPUT_DIR     = ROOT / "results/yolo/pcb_inspection"
+OUTPUT_BASE    = ROOT / "results/yolo/pcb_inspection"
 
 CLASS_NAMES    = ["Main IC", "connecter", "resistor", "screw"]
 
@@ -75,8 +75,9 @@ CLASS_CONF = {
     3: 0.25,   # screw
 }
 
-SUPPRESS_CLASSES = {3}    # screw: exclude from PatchCore heatmap
-SUPPRESS_VALUE   = -1.0   # sentinel written into suppressed pixels
+SUPPRESS_CLASSES      = {3}    # screw: exclude from PatchCore heatmap
+SUPPRESS_VALUE        = -1.0   # sentinel written into suppressed pixels
+SUPPRESS_DILATION_PX  = 0      # expand screw mask edge outward by N px; use 20 for type1/type2 (background screws)
 
 # PatchCore preprocessing must match training (resize=1024, crop=1024)
 PC_RESIZE = 1024
@@ -85,23 +86,27 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 YOLO_CONF      = 0.25
-TOP_PCT        = 5          # top-N% anomaly highlight panel
+TOP_PCT        = 1          # top-N% anomaly highlight panel
 ANOMALY_THRESH = 190.0      # PatchCore score >= this → surface NG (override with --threshold)
 
 
 # ── Model loader ───────────────────────────────────────────────────────────────
 class PCBInspector:
-    def __init__(self, device="cuda:0", anomaly_thresh=ANOMALY_THRESH):
+    def __init__(self, device="cuda:0", anomaly_thresh=ANOMALY_THRESH,
+                 suppress_dilation=SUPPRESS_DILATION_PX,
+                 patchcore_path=PATCHCORE_PATH):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.anomaly_thresh = anomaly_thresh
+        self.suppress_dilation = suppress_dilation
+        self.patchcore_path = Path(patchcore_path)
 
         print(f"Loading YOLO   : {YOLO_WEIGHTS}")
         self.yolo = YOLO(str(YOLO_WEIGHTS))
 
-        print(f"Loading PatchCore: {PATCHCORE_PATH}")
+        print(f"Loading PatchCore: {self.patchcore_path}")
         nn_method = patchcore.common.FaissNN(False, 4)
         self.pc = patchcore.patchcore.PatchCore(self.device)
-        self.pc.load_from_path(str(PATCHCORE_PATH), self.device, nn_method)
+        self.pc.load_from_path(str(self.patchcore_path), self.device, nn_method)
 
         self._pc_img_transform = transforms.Compose([
             transforms.Resize(PC_RESIZE),
@@ -181,6 +186,11 @@ class PCBInspector:
                 (raw_heatmap.shape[1], raw_heatmap.shape[0]),
                 interpolation=cv2.INTER_NEAREST,
             ).astype(bool)
+        # Dilate outward from mask edge to suppress corner halos from background screws
+        if self.suppress_dilation > 0:
+            r = self.suppress_dilation
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*r+1, 2*r+1))
+            suppression = cv2.dilate(suppression.astype(np.uint8), kernel).astype(bool)
         raw_heatmap[suppression] = SUPPRESS_VALUE
         valid_pixels  = raw_heatmap[raw_heatmap >= 0]
         anomaly_score = float(valid_pixels.max()) if valid_pixels.size else 0.0
@@ -303,19 +313,28 @@ def _render(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
     cm = cv2.resize(cm, (w, h))
     p2 = cv2.addWeighted(orig_bgr, 0.5, cm, 0.5, 0)
 
-    # Panel 3 — Top-N% patches highlighted red on dimmed original
-    # Percentile computed from valid (non-suppressed) pixels only
+    # Panel 3 — Highest-score patch circled on dimmed original
+    # Find the single peak location in the heatmap (max of valid pixels)
     valid_px  = anom_map[anom_map >= 0]
-    threshold = float(np.percentile(valid_px, 100 - top_pct)) if valid_px.size else 0
-    hot_mask  = cv2.resize(
-        (anom_map >= threshold).astype(np.uint8), (w, h),
-        interpolation=cv2.INTER_NEAREST,
-    )
-    dimmed = (orig_bgr * 0.35).astype(np.uint8)
-    red    = np.zeros_like(orig_bgr)
-    red[:, :, 2] = 180
+    peak_val  = float(valid_px.max()) if valid_px.size else 0
+    peak_mask = (anom_map >= peak_val)
+    ys, xs    = np.where(peak_mask)
+    cy = int(ys.mean() * h / anom_map.shape[0])
+    cx = int(xs.mean() * w / anom_map.shape[1])
+    # Radius = ~5% of image width so the circle is visible
+    radius = max(20, w // 20)
+    dimmed = (orig_bgr * 0.45).astype(np.uint8)
     p3 = dimmed.copy()
-    p3[hot_mask == 1] = cv2.addWeighted(orig_bgr, 0.4, red, 0.6, 0)[hot_mask == 1]
+    # Bright patch inside circle stays at full colour
+    circle_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.circle(circle_mask, (cx, cy), radius, 1, -1)
+    p3[circle_mask == 1] = orig_bgr[circle_mask == 1]
+    # Red ring outline
+    cv2.circle(p3, (cx, cy), radius,     (0, 0, 255), 3, cv2.LINE_AA)
+    cv2.circle(p3, (cx, cy), radius + 4, (0, 0, 180), 1, cv2.LINE_AA)
+    # Small crosshair at exact peak
+    cv2.line(p3, (cx - 8, cy), (cx + 8, cy), (0, 0, 255), 2, cv2.LINE_AA)
+    cv2.line(p3, (cx, cy - 8), (cx, cy + 8), (0, 0, 255), 2, cv2.LINE_AA)
 
     # Panel wrappers (title bar + image + score bar)
     title_h, score_h, gap = 46, 50, 6
@@ -337,7 +356,7 @@ def _render(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
     panels = [
         wrap(p1, "YOLO detections",         None),
         wrap(p2, "Anomaly map",              score),
-        wrap(p3, f"Top {top_pct}% anomaly", score),
+        wrap(p3, "Peak anomaly location",    score),
     ]
     div = np.full((panels[0].shape[0], gap, 3), 200, dtype=np.uint8)
     row = np.concatenate([panels[0], div, panels[1], div, panels[2]], axis=1)
@@ -399,24 +418,35 @@ def main():
     grp.add_argument("--image",     type=str)
     grp.add_argument("--image_dir", type=str)
     parser.add_argument("--device",      type=str,  default="cuda:0")
-    parser.add_argument("--threshold",   type=float, default=ANOMALY_THRESH,
+    parser.add_argument("--threshold",        type=float, default=ANOMALY_THRESH,
                         help=f"Raw anomaly score threshold for NG verdict (default: {ANOMALY_THRESH})")
+    parser.add_argument("--suppress_dilation", type=int, default=SUPPRESS_DILATION_PX,
+                        help=f"Pixels to expand screw mask outward (default: {SUPPRESS_DILATION_PX})")
+    parser.add_argument("--patchcore_path", type=str, default=str(PATCHCORE_PATH),
+                        help="Path to PatchCore model directory")
     parser.add_argument("--save",        action="store_true")
     parser.add_argument("--include_aug", action="store_true",
                         help="Include _aug_ rotated images (excluded by default)")
     args = parser.parse_args()
 
-    inspector = PCBInspector(device=args.device, anomaly_thresh=args.threshold)
+    pc_path    = Path(args.patchcore_path)
+    model_name = pc_path.parent.parent.name   # e.g. ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1
+    out_dir    = OUTPUT_BASE / model_name
+
+    inspector = PCBInspector(device=args.device, anomaly_thresh=args.threshold,
+                             suppress_dilation=args.suppress_dilation,
+                             patchcore_path=pc_path)
 
     if args.save:
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Output dir: {out_dir}\n")
 
     if args.image:
         r = inspector.inspect(args.image)
         print(f"[{r['verdict']}] score={r['anomaly_score']:.4f}"
               + (f"  issues={r['issues']}" if r["issues"] else ""))
         if args.save:
-            out = OUTPUT_DIR / f"{Path(args.image).stem}_result.jpg"
+            out = out_dir / f"{Path(args.image).stem}_result.jpg"
             cv2.imwrite(str(out), r["vis"])
             print(f"Saved → {out}")
         return
@@ -458,7 +488,7 @@ def main():
               f"  det={counts}{miss}")
 
         if args.save:
-            out = OUTPUT_DIR / f"{p.stem}_result.jpg"
+            out = out_dir / f"{p.stem}_result.jpg"
             cv2.imwrite(str(out), vis)
 
 
