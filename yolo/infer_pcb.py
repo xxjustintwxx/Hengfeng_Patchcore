@@ -499,13 +499,13 @@ def main():
             print(f"Saved → {out}")
         return
 
-    # ── Folder mode: two-pass for shared colorbar scale ───────────────────────
+    # ── Folder mode ───────────────────────────────────────────────────────────
     image_paths = _collect_images(args.image_dir, args.include_aug)
     if not image_paths:
         print("No images found.")
         return
 
-    print(f"Pass 1/2 — collecting anomaly maps ({len(image_paths)} images)...")
+    print(f"Running inference on {len(image_paths)} images...")
     all_raw = []
     all_results = []
     for p in image_paths:
@@ -513,12 +513,7 @@ def main():
         all_raw.append(r["raw_heatmap"])
         all_results.append((p, r))
 
-    all_valid = np.concatenate([m[m >= 0].ravel() for m in all_raw])
-    shared_lo = float(np.percentile(all_valid, 1))
-    shared_hi = float(np.percentile(all_valid, 99))
-    print(f"Shared colorbar range: lo={shared_lo:.2f}  hi={shared_hi:.2f}\n")
-
-    print("Pass 2/2 — rendering...")
+    print("Rendering...")
     for p, r in all_results:
         surface_fail = (inspector.anomaly_thresh is not None
                         and r["anomaly_score"] > inspector.anomaly_thresh)
@@ -527,7 +522,7 @@ def main():
         vis = _render(
             r["orig_bgr"], r["yolo_bgr"], r["raw_heatmap"],
             r["anomaly_score"], verdict, r["issues"],
-            surface_fail=surface_fail, shared_lo=shared_lo, shared_hi=shared_hi,
+            surface_fail=surface_fail, shared_lo=None, shared_hi=None,
         )
         marker = "!!" if verdict == "NG" else "  "
         miss   = f"  issues={r['issues']}" if r["issues"] else ""
