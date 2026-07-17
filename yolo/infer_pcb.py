@@ -79,7 +79,15 @@ SUPPRESS_CLASSES      = {3}    # screw: exclude from PatchCore heatmap
 SUPPRESS_VALUE        = -1.0   # sentinel written into suppressed pixels
 SUPPRESS_DILATION_PX  = 0      # expand screw mask edge outward by N px; use 20 for type1/type2 (background screws)
 
-# PatchCore preprocessing must match training (resize=1024, crop=1024)
+# Per-class post-NMS IoU threshold applied AFTER YOLO's global NMS.
+# Screws sometimes produce two overlapping detections on the same fastener
+# that slip through the global IoU=0.45 threshold. A stricter per-class NMS
+# deduplicates them while keeping genuinely separate screws (IoU ~0.0–0.1).
+CLASS_NMS_IOU = {
+    3: 0.30,   # screw
+}
+
+# PatchCore preprocessing must match training resolution
 PC_RESIZE = 1024
 PC_CROP   = 1024
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -90,15 +98,43 @@ TOP_PCT        = 1          # top-N% anomaly highlight panel
 ANOMALY_THRESH = 190.0      # PatchCore score >= this → surface NG (override with --threshold)
 
 
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def _per_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
+                   cls_ids: np.ndarray, iou_thresholds: dict) -> np.ndarray:
+    """Return a boolean keep-mask after applying stricter per-class NMS.
+
+    Only classes listed in iou_thresholds are re-filtered; all other
+    detections pass through unchanged.
+    """
+    from torchvision.ops import nms as tv_nms
+    keep = np.ones(len(cls_ids), dtype=bool)
+    for cls_id, iou_thr in iou_thresholds.items():
+        idx = np.where(cls_ids == cls_id)[0]
+        if len(idx) <= 1:
+            continue
+        kept_local = tv_nms(
+            torch.tensor(boxes_xyxy[idx], dtype=torch.float32),
+            torch.tensor(confs[idx],      dtype=torch.float32),
+            iou_thr,
+        ).numpy()
+        keep[idx] = False
+        keep[idx[kept_local]] = True
+    return keep
+
+
 # ── Model loader ───────────────────────────────────────────────────────────────
 class PCBInspector:
     def __init__(self, device="cuda:0", anomaly_thresh=ANOMALY_THRESH,
                  suppress_dilation=SUPPRESS_DILATION_PX,
-                 patchcore_path=PATCHCORE_PATH):
+                 patchcore_path=PATCHCORE_PATH,
+                 pc_resize=PC_RESIZE, pc_crop=PC_CROP):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.anomaly_thresh = anomaly_thresh
         self.suppress_dilation = suppress_dilation
         self.patchcore_path = Path(patchcore_path)
+        self.pc_resize = pc_resize
+        self.pc_crop   = pc_crop
 
         print(f"Loading YOLO   : {YOLO_WEIGHTS}")
         self.yolo = YOLO(str(YOLO_WEIGHTS))
@@ -109,14 +145,14 @@ class PCBInspector:
         self.pc.load_from_path(str(self.patchcore_path), self.device, nn_method)
 
         self._pc_img_transform = transforms.Compose([
-            transforms.Resize(PC_RESIZE),
-            transforms.CenterCrop(PC_CROP),
+            transforms.Resize(pc_resize),
+            transforms.CenterCrop(pc_crop),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ])
         self._pc_mask_transform = transforms.Compose([
-            transforms.Resize(PC_RESIZE, interpolation=transforms.InterpolationMode.NEAREST),
-            transforms.CenterCrop(PC_CROP),
+            transforms.Resize(pc_resize, interpolation=transforms.InterpolationMode.NEAREST),
+            transforms.CenterCrop(pc_crop),
             transforms.ToTensor(),
         ])
         print("Ready.\n")
@@ -139,23 +175,30 @@ class PCBInspector:
         # Default 0.7 is too lenient for dense resistors — same-resistor duplicates
         # overlap ~50-60% and slip through. Adjacent resistors share only an edge
         # (IoU ~0.1-0.2) so they are not merged at this threshold.
-        yolo_res      = self.yolo(pil_img, conf=YOLO_CONF, iou=0.45, imgsz=1280, verbose=False)[0]
+        yolo_res      = self.yolo(pil_img, conf=YOLO_CONF, iou=0.20, imgsz=1280, verbose=False)[0]
         count_by_cls  = {i: 0 for i in range(len(CLASS_NAMES))}
-        suppression   = np.zeros((PC_CROP, PC_CROP), dtype=bool)
+        suppression   = np.zeros((self.pc_crop, self.pc_crop), dtype=bool)
 
         if yolo_res.boxes is not None:
             cls_ids   = yolo_res.boxes.cls.cpu().numpy().astype(int)
             confs     = yolo_res.boxes.conf.cpu().numpy()
-            for cls_id, conf in zip(cls_ids, confs):
+            boxes_xyxy = yolo_res.boxes.xyxy.cpu().numpy()
+            # Per-class stricter NMS to remove duplicate detections (e.g. double-counted screws)
+            nms_keep  = _per_class_nms(boxes_xyxy, confs, cls_ids, CLASS_NMS_IOU)
+            for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
+                if not keep:
+                    continue
                 # Apply per-class confidence threshold
                 if conf >= CLASS_CONF.get(cls_id, 0.25):
                     count_by_cls[cls_id] += 1
 
-        if yolo_res.masks is not None:
+        if yolo_res.masks is not None and yolo_res.boxes is not None:
             masks_data = yolo_res.masks.data.cpu().numpy()
             cls_ids    = yolo_res.boxes.cls.cpu().numpy().astype(int)
             confs      = yolo_res.boxes.conf.cpu().numpy()
-            for mask_raw, cls_id, conf in zip(masks_data, cls_ids, confs):
+            for mask_raw, cls_id, conf, keep in zip(masks_data, cls_ids, confs, nms_keep):
+                if not keep:
+                    continue
                 if conf < CLASS_CONF.get(cls_id, 0.25):
                     continue
                 if cls_id in SUPPRESS_CLASSES:
@@ -196,7 +239,7 @@ class PCBInspector:
         anomaly_score = float(valid_pixels.max()) if valid_pixels.size else 0.0
 
         # Original image in BGR, cropped to same space PatchCore sees
-        orig_bgr = _pil_to_bgr(pil_img, PC_RESIZE, PC_CROP)
+        orig_bgr = _pil_to_bgr(pil_img, self.pc_resize, self.pc_crop)
 
         # Custom YOLO overlay: masks + boxes for all classes,
         # text labels only for LABEL_CLASSES (not resistors)
@@ -424,6 +467,10 @@ def main():
                         help=f"Pixels to expand screw mask outward (default: {SUPPRESS_DILATION_PX})")
     parser.add_argument("--patchcore_path", type=str, default=str(PATCHCORE_PATH),
                         help="Path to PatchCore model directory")
+    parser.add_argument("--resize",   type=int, default=PC_RESIZE,
+                        help=f"PatchCore resize resolution (default: {PC_RESIZE})")
+    parser.add_argument("--cropsize", type=int, default=PC_CROP,
+                        help=f"PatchCore center-crop size (default: {PC_CROP})")
     parser.add_argument("--save",        action="store_true")
     parser.add_argument("--include_aug", action="store_true",
                         help="Include _aug_ rotated images (excluded by default)")
@@ -435,7 +482,8 @@ def main():
 
     inspector = PCBInspector(device=args.device, anomaly_thresh=args.threshold,
                              suppress_dilation=args.suppress_dilation,
-                             patchcore_path=pc_path)
+                             patchcore_path=pc_path,
+                             pc_resize=args.resize, pc_crop=args.cropsize)
 
     if args.save:
         out_dir.mkdir(parents=True, exist_ok=True)

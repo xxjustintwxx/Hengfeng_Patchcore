@@ -20,6 +20,9 @@ dist/
 build/
 *.egg
 
+# YOLO inference result images
+results/yolo/pcb_inspection/
+
 # YOLO training run artifacts (large — weights, plots, csvs)
 results/yolo/pcb_seg/
 results/yolo/pcb_seg_1280/
