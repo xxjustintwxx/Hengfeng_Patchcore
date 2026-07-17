@@ -1,4 +1,4 @@
-# Live inference configuration for PatchCore + Pixel 6 camera
+# Live inference configuration for YOLO + PatchCore + Pixel 6 camera
 # Run: python live_infer.py --model_path results/IR_Module/<log_group>/models/mvtec_ir_module
 
 camera:
@@ -11,15 +11,33 @@ camera:
 preprocessing:
   # ROI crop in pixels: [x, y, width, height] — must match preprocess_config.yaml
   roi: [640, 1620, 950, 820]
-  # Output resolution after crop + resize — must match the trained model
+  # Output resolution after crop + resize — must match the trained PatchCore model
   output_size: [1024, 1024]
 
+yolo:
+  weights: "models/yolo/pcb_seg/weights/best.pt"
+  conf: 0.25            # global confidence floor
+  nms_iou: 0.20         # global NMS IoU threshold (lower = stricter deduplication)
+  imgsz: 1280           # YOLO inference resolution
+  class_conf:           # per-class confidence override (must be >= conf)
+    0: 0.25             # Main IC
+    1: 0.25             # connecter
+    2: 0.55             # resistor (higher = fewer false detections)
+    3: 0.25             # screw
+  expected_counts:      # exact component count check — NG if any mismatch
+    0: 1                # Main IC
+    1: 4                # connecter
+    2: 35               # resistor
+    3: 4                # screw
+  suppress_dilation: 0  # expand screw mask edge outward by N px
+                        # set to 20 if background screw halos appear in the heatmap
+
 inference:
-  device: "cuda"         # "cuda" or "cpu"
-  # Anomaly score threshold for OK/NG verdict in the heatmap.
-  # Set to null to skip auto-labelling (heatmap will show "LIVE" in grey).
+  device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
+  # Anomaly score threshold for OK/NG surface verdict.
+  # Set to null to skip surface NG labelling (component count still checked).
   score_threshold: null
 
 output:
   captures_dir: "./captures"      # raw phone photos, timestamped
-  heatmaps_dir: "./results/live"  # 3-panel heatmap images, timestamped
+  heatmaps_dir: "./results/live"  # 3-panel result images, timestamped
