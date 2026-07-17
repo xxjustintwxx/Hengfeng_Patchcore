@@ -52,6 +52,7 @@ def capture_snapshot(
                     f"cv2.imdecode returned None — the response from {url} is not a "
                     "valid image (content-length={len(resp.content)} bytes)"
                 )
+            img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
             return img
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:

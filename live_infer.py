@@ -178,11 +178,14 @@ def run_inference_pipeline(pc, device, cfg) -> None:
     (CLI, sensor, motion detector) calls this as a callback and does not need
     to know anything about the camera or model.
     """
+    import time
+    t_total = time.time()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     # --- Capture ---
     cam = cfg["camera"]
-    print(f"[{ts}] Capturing...", flush=True)
+    print(f"[{ts}] Step 1/4  Capturing from camera...", flush=True)
+    t0 = time.time()
     try:
         raw_bgr = capture_snapshot(
             url=cam["url"],
@@ -194,8 +197,7 @@ def run_inference_pipeline(pc, device, cfg) -> None:
     except RuntimeError as e:
         print(f"  [CAPTURE ERROR] {e}", flush=True)
         return
-
-    print(f"  Captured {raw_bgr.shape[1]}x{raw_bgr.shape[0]}.", flush=True)
+    print(f"  Done  ({time.time()-t0:.2f}s)  — {raw_bgr.shape[1]}x{raw_bgr.shape[0]}", flush=True)
 
     # --- Save raw photo ---
     captures_dir = cfg["output"]["captures_dir"]
@@ -203,8 +205,29 @@ def run_inference_pipeline(pc, device, cfg) -> None:
     raw_path = os.path.join(captures_dir, f"{ts}_raw.jpg")
     cv2.imwrite(raw_path, raw_bgr)
 
-    # --- Preprocess ---
+    # --- ROI preview ---
     roi = cfg["preprocessing"].get("roi")
+    if roi is not None:
+        preview = raw_bgr.copy()
+        x, y, w, h = roi
+        cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 6)
+        label_txt = "ROI"
+        cv2.putText(preview, label_txt, (x, y - 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 4, cv2.LINE_AA)
+        preview_path = os.path.join(captures_dir, f"{ts}_roi_preview.jpg")
+        cv2.imwrite(preview_path, preview)
+        import subprocess
+        subprocess.Popen(["open", preview_path])
+        print(f"\n  ROI preview saved → {preview_path}", flush=True)
+        print("  Press Enter to run inference, or type 'q' + Enter to cancel: ", end="", flush=True)
+        answer = input().strip().lower()
+        if answer == "q":
+            print("  Cancelled.", flush=True)
+            return
+
+    # --- Preprocess ---
+    print(f"  Step 2/4  Preprocessing (ROI crop + resize + normalise)...", flush=True)
+    t0 = time.time()
     output_size = tuple(cfg["preprocessing"]["output_size"])
     try:
         preprocessed_bgr = crop_and_resize(raw_bgr, roi, output_size)
@@ -213,14 +236,17 @@ def run_inference_pipeline(pc, device, cfg) -> None:
     except Exception as e:
         print(f"  [PREPROCESS ERROR] {e}", flush=True)
         return
+    print(f"  Done  ({time.time()-t0:.2f}s)  — tensor {list(tensor.shape)}", flush=True)
 
     # --- Infer ---
-    print("  Running inference...", flush=True)
+    print(f"  Step 3/4  Running PatchCore inference (backbone + FAISS search)...", flush=True)
+    t0 = time.time()
     try:
         scores, masks = pc._predict(tensor)
     except Exception as e:
         print(f"  [INFERENCE ERROR] {e}", flush=True)
         return
+    print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
 
     score    = float(scores[0])
     anom_map = np.array(masks[0])
@@ -235,14 +261,18 @@ def run_inference_pipeline(pc, device, cfg) -> None:
         print(f"  Score: {score:.4f}", flush=True)
 
     # --- Save heatmap ---
+    print(f"  Step 4/4  Saving heatmap...", flush=True)
+    t0 = time.time()
     heatmaps_dir = cfg["output"]["heatmaps_dir"]
     heatmap_path = os.path.join(heatmaps_dir, f"{ts}_heatmap.jpg")
     try:
         save_heatmap(preprocessed_bgr, anom_map, score, label, heatmap_path)
+        print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
         print(f"  Raw   → {raw_path}", flush=True)
         print(f"  Map   → {heatmap_path}", flush=True)
     except Exception as e:
         print(f"  [SAVE ERROR] {e}", flush=True)
+    print(f"  Total time: {time.time()-t_total:.2f}s\n", flush=True)
 
 
 # ---------------------------------------------------------------------------

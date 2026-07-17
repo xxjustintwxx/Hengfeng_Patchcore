@@ -32,6 +32,10 @@ results/gifs/
 # Stray model weight files
 yolo26n.pt
 
+# Live demo outputs
+captures/
+results/live/
+
 # Misc
 .DS_Store
 tmp/

@@ -2,7 +2,7 @@
 # Run: python live_infer.py --model_path results/IR_Module/<log_group>/models/mvtec_ir_module
 
 camera:
-  url: "http://localhost:8080/shot.jpg"
+  url: "http://192.168.0.135:8080/shot.jpg"
   timeout: 3.0          # seconds per HTTP request
   retries: 3            # total attempts before giving up
   retry_delay: 0.5      # seconds between failed attempts
@@ -12,7 +12,7 @@ preprocessing:
   # ROI crop in pixels: [x, y, width, height] — must match preprocess_config.yaml
   roi: [640, 1620, 950, 820]
   # Output resolution after crop + resize — must match the trained model
-  output_size: [1024, 1024]
+  output_size: [512, 512]
 
 inference:
   device: "cuda"         # "cuda" or "cpu"
