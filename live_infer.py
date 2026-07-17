@@ -37,7 +37,7 @@ IMAGENET_STD  = [0.229, 0.224, 0.225]
 # ---------------------------------------------------------------------------
 
 def load_config(path: str) -> dict:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -216,8 +216,14 @@ def run_inference_pipeline(pc, device, cfg) -> None:
                     cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 4, cv2.LINE_AA)
         preview_path = os.path.join(captures_dir, f"{ts}_roi_preview.jpg")
         cv2.imwrite(preview_path, preview)
-        import subprocess
-        subprocess.Popen(["open", preview_path])
+        if sys.platform == "win32":
+            os.startfile(preview_path)
+        elif sys.platform == "darwin":
+            import subprocess
+            subprocess.Popen(["open", preview_path])
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open", preview_path])
         print(f"\n  ROI preview saved → {preview_path}", flush=True)
         print("  Press Enter to run inference, or type 'q' + Enter to cancel: ", end="", flush=True)
         answer = input().strip().lower()
@@ -285,10 +291,9 @@ def cli_trigger_loop(callback) -> None:
     To swap in a different trigger (e.g. GPIO sensor, motion detector), replace
     this function with one that calls callback() on the desired event.
     """
-    print("Ready. Press Enter to capture + infer. Ctrl+C to quit.\n", flush=True)
     while True:
         try:
-            input()
+            input("Press Enter to capture + infer. Ctrl+C to quit.\n")
         except KeyboardInterrupt:
             print("\nExiting.", flush=True)
             sys.exit(0)

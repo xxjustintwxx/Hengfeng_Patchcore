@@ -12,7 +12,7 @@ preprocessing:
   # ROI crop in pixels: [x, y, width, height] — must match preprocess_config.yaml
   roi: [640, 1620, 950, 820]
   # Output resolution after crop + resize — must match the trained model
-  output_size: [512, 512]
+  output_size: [1024, 1024]
 
 inference:
   device: "cuda"         # "cuda" or "cpu"
