@@ -20,6 +20,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# ultralytics defaults OMP_NUM_THREADS to 1 on import (to limit CPU contention
+# during its own training runs), which also throttles PatchCore's FAISS search
+# and torch's CPU threading if not set beforehand.
+os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count()))
+
 import cv2
 import numpy as np
 import torch
@@ -359,8 +364,31 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     raw_path = os.path.join(captures_dir, f"{ts}_raw.jpg")
     cv2.imwrite(raw_path, raw_bgr)
 
+    # ROI preview
+    roi = cfg["preprocessing"].get("roi")
+    if roi is not None:
+        preview = raw_bgr.copy()
+        x, y, w, h = roi
+        cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 6)
+        cv2.putText(preview, "ROI", (x, y - 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 4, cv2.LINE_AA)
+        preview_path = os.path.join(captures_dir, f"{ts}_roi_preview.jpg")
+        cv2.imwrite(preview_path, preview)
+        if sys.platform == "win32":
+            os.startfile(preview_path)
+        elif sys.platform == "darwin":
+            import subprocess
+            subprocess.Popen(["open", preview_path])
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open", preview_path])
+        print(f"\n  ROI preview saved → {preview_path}", flush=True)
+        answer = input("  Press Enter to run inference, or type 'q' + Enter to cancel: ").strip().lower()
+        if answer == "q":
+            print("  Cancelled.", flush=True)
+            return
+
     # Step 2 — ROI crop + resize
-    roi         = cfg["preprocessing"].get("roi")
     output_size = tuple(cfg["preprocessing"]["output_size"])
     print(f"  Step 2/5  Preprocessing (ROI crop + resize to {output_size})...", flush=True)
     t0 = time.time()
