@@ -45,6 +45,20 @@ from live_infer import (
 
 app = Flask(__name__)
 
+
+@app.context_processor
+def inject_static_versioned():
+    """Cache-bust static assets by mtime, so browsers never serve a stale
+    style.css/app.js after an edit without needing a manual hard refresh."""
+    def static_versioned(filename):
+        path = os.path.join(app.static_folder, filename)
+        try:
+            v = int(os.path.getmtime(path))
+        except OSError:
+            v = 0
+        return f"/static/{filename}?v={v}"
+    return {"static_versioned": static_versioned}
+
 # Global, single-operator server state (no session/multi-client handling needed
 # for this local desktop tool).
 STATE = {

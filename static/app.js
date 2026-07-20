@@ -10,10 +10,22 @@ const screens = {
   result: document.getElementById("screen-result"),
 };
 
+const stepOrder = ["settings", "capture", "result"];
+
 function showScreen(name) {
   for (const key of Object.keys(screens)) {
     screens[key].hidden = key !== name;
   }
+  updateStepIndicator(name);
+}
+
+function updateStepIndicator(activeName) {
+  const activeIdx = stepOrder.indexOf(activeName);
+  document.querySelectorAll("#step-indicator .step").forEach((el) => {
+    const idx = stepOrder.indexOf(el.dataset.step);
+    el.classList.toggle("active", idx === activeIdx);
+    el.classList.toggle("done", idx < activeIdx);
+  });
 }
 
 // Where "Save"/"Cancel" on the settings screen should return to.
@@ -249,15 +261,18 @@ function renderResult(data) {
     ngThreshold === null ? "none set" : ngThreshold;
 
   const countsEl = document.getElementById("component-counts");
-  countsEl.innerHTML = "<h3>Detected components</h3><ul>" +
+  countsEl.innerHTML = "<p class=\"eyebrow\">Detected components</p><ul class=\"chip-list\">" +
     Object.entries(data.detected_counts)
-      .map(([name, n]) => `<li>${name}: ${n}</li>`)
+      .map(([name, n]) => {
+        const mismatch = data.issues.some((i) => i.startsWith(name + " ("));
+        return `<li class="chip${mismatch ? " mismatch" : ""}">${name} ${n}</li>`;
+      })
       .join("") +
     "</ul>";
 
   const issuesEl = document.getElementById("issues-list");
   issuesEl.innerHTML = data.issues.length
-    ? "<h3>Component issues</h3><ul>" + data.issues.map((i) => `<li>${i}</li>`).join("") + "</ul>"
+    ? "<p class=\"eyebrow\">Component issues</p><ul>" + data.issues.map((i) => `<li>${i}</li>`).join("") + "</ul>"
     : "";
 
   const slider = document.getElementById("threshold-slider");
@@ -265,6 +280,7 @@ function renderResult(data) {
   slider.max = data.range.max;
   slider.value = data.suggested_threshold;
   updateThresholdValueLabel(slider.value);
+  updateSliderFill(slider);
 
   const pcbImg = document.getElementById("pcb-img");
   const draw = () => renderOverlay(data.grid, parseFloat(slider.value));
@@ -284,6 +300,7 @@ function renderResult(data) {
 document.getElementById("threshold-slider").addEventListener("input", (e) => {
   const threshold = parseFloat(e.target.value);
   updateThresholdValueLabel(threshold);
+  updateSliderFill(e.target);
   if (state.lastResult) {
     renderOverlay(state.lastResult.grid, threshold);
   }
@@ -291,6 +308,13 @@ document.getElementById("threshold-slider").addEventListener("input", (e) => {
 
 function updateThresholdValueLabel(value) {
   document.getElementById("threshold-value").textContent = parseFloat(value).toFixed(2);
+}
+
+function updateSliderFill(slider) {
+  const min = parseFloat(slider.min), max = parseFloat(slider.max), val = parseFloat(slider.value);
+  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+  slider.style.background =
+    `linear-gradient(90deg, var(--accent) ${pct}%, var(--border-strong) ${pct}%)`;
 }
 
 function updateVerdict(data, threshold) {
@@ -304,8 +328,13 @@ function updateVerdict(data, threshold) {
     label = "OK";
     cls = "ok";
   }
-  badge.textContent = label;
+  const icon = cls === "ok"
+    ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
+    : '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
+  badge.innerHTML = icon + "<span>" + label + "</span>";
   badge.className = "badge " + cls;
+
+  document.getElementById("score-value").classList.toggle("score-ng", surfaceFail);
 }
 
 function renderOverlay(grid, threshold) {

@@ -4,15 +4,40 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PCB Inspection</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ static_versioned('style.css') }}">
 </head>
 <body>
   <header>
-    <h1>PCB Inspection</h1>
-    <nav id="nav-links">
-      <button id="nav-settings" class="link-btn">Settings</button>
-    </nav>
+    <div class="header-inner">
+      <div class="brand">
+        <p class="eyebrow">Automated Optical Inspection</p>
+        <h1>PCB Inspection</h1>
+      </div>
+      <button id="nav-settings" class="icon-btn" type="button" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>Settings</span>
+      </button>
+    </div>
   </header>
+
+  <nav class="steps" id="step-indicator" aria-label="Progress">
+    <div class="step" data-step="settings">
+      <span class="step-index">1</span>
+      <span class="step-label">Setup</span>
+    </div>
+    <div class="step" data-step="capture">
+      <span class="step-index">2</span>
+      <span class="step-label">Capture</span>
+    </div>
+    <div class="step" data-step="result">
+      <span class="step-index">3</span>
+      <span class="step-label">Result</span>
+    </div>
+  </nav>
 
   <main>
     <!-- Screen 1: Settings -->
@@ -25,15 +50,17 @@
         </label>
         <label>
           Screw suppression dilation (px)
+          <span class="hint">Expands the screw mask outward before it's excluded from the anomaly score</span>
           <input type="number" id="dilation-input" min="0" step="1" value="0">
         </label>
         <label>
           NG threshold
+          <span class="hint">Anomaly score at or above this value fails the board</span>
           <input type="number" id="threshold-input" step="any" value="200">
         </label>
         <div class="btn-row">
-          <button type="submit" id="settings-save-btn">Start</button>
-          <button type="button" id="settings-cancel-btn" class="secondary" hidden>Cancel</button>
+          <button type="submit" id="settings-save-btn" class="btn-primary">Start</button>
+          <button type="button" id="settings-cancel-btn" class="btn-ghost" hidden>Cancel</button>
         </div>
       </form>
       <p id="settings-status" class="status"></p>
@@ -43,45 +70,55 @@
     <section id="screen-capture" class="screen" hidden>
       <div id="capture-controls">
         <h2>Capture</h2>
-        <p id="active-settings" class="status"></p>
-        <button id="capture-btn">Capture</button>
+        <p id="active-settings" class="status mono"></p>
+        <button id="capture-btn" class="btn-primary btn-large">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <span>Capture</span>
+        </button>
         <p id="capture-status" class="status"></p>
 
         <div id="roi-preview-wrap" hidden>
           <h3>ROI preview — confirm before running inference</h3>
           <div class="btn-row">
-            <button id="run-inference-btn">Run inference</button>
-            <button id="retake-btn" class="secondary">Retake</button>
+            <button id="run-inference-btn" class="btn-primary">Run inference</button>
+            <button id="retake-btn" class="btn-ghost">Retake</button>
           </div>
           <img id="roi-preview-img" alt="ROI preview">
         </div>
       </div>
 
       <div id="inference-progress" hidden>
+        <div class="spinner" aria-hidden="true"></div>
         <h2>Inference</h2>
-        <p id="infer-timer" class="status"></p>
+        <p id="infer-timer" class="status mono"></p>
         <div class="btn-row">
-          <button id="cancel-inference-btn" class="secondary">Cancel</button>
+          <button id="cancel-inference-btn" class="btn-ghost">Cancel</button>
         </div>
       </div>
     </section>
 
     <!-- Screen 3: Result -->
     <section id="screen-result" class="screen" hidden>
-      <h2>Result</h2>
-      <div id="verdict-badge" class="badge"></div>
+      <div class="result-head">
+        <h2>Result</h2>
+        <div id="verdict-badge" class="badge"></div>
+      </div>
 
       <div class="panel-grid">
         <div class="panel">
-          <h3>YOLO detections</h3>
+          <p class="eyebrow">YOLO detections</p>
           <img id="yolo-img" alt="YOLO detections">
         </div>
         <div class="panel">
-          <h3>Anomaly heatmap</h3>
+          <p class="eyebrow">Anomaly heatmap</p>
           <img id="heatmap-img" alt="Anomaly heatmap">
         </div>
         <div class="panel">
-          <h3>Flagged regions</h3>
+          <p class="eyebrow">Flagged regions</p>
           <div class="img-wrap">
             <img id="pcb-img" alt="Cropped PCB">
             <canvas id="overlay-canvas"></canvas>
@@ -90,23 +127,25 @@
       </div>
 
       <div id="threshold-controls">
-        <p class="status">NG threshold: <span id="ng-threshold-value"></span></p>
+        <p class="status mono">NG threshold: <span id="ng-threshold-value"></span></p>
         <label for="threshold-slider">
-          Flag threshold: <span id="threshold-value"></span>
+          Flag threshold: <span id="threshold-value" class="mono"></span>
         </label>
         <input type="range" id="threshold-slider" step="0.1">
       </div>
 
-      <div id="component-counts"></div>
-      <div id="issues-list"></div>
-      <p class="status">Score: <span id="score-value"></span>  |  Inference time: <span id="infer-time-value"></span>s</p>
-      <p id="timing-breakdown" class="status"></p>
+      <div class="result-meta">
+        <div id="component-counts"></div>
+        <div id="issues-list"></div>
+      </div>
+      <p class="status mono">Score: <span id="score-value"></span>  |  Inference time: <span id="infer-time-value"></span>s</p>
+      <p id="timing-breakdown" class="status mono"></p>
       <div class="btn-row">
-        <button id="capture-again-btn">Capture another</button>
+        <button id="capture-again-btn" class="btn-primary">Capture another</button>
       </div>
     </section>
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ static_versioned('app.js') }}"></script>
 </body>
 </html>
