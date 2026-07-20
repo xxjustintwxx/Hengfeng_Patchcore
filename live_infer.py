@@ -336,9 +336,14 @@ def save_result(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
 # ---------------------------------------------------------------------------
 
 def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
-    """One full cycle: capture → ROI crop+resize → YOLO → PatchCore → save."""
+    """One full cycle: capture → ROI crop+resize → YOLO → PatchCore → save.
+
+    "Total time" sums only the processing steps below (capture, preprocess,
+    YOLO, PatchCore, save) — it excludes the ROI-confirm prompt, so however
+    long you spend deciding whether to proceed doesn't count toward it.
+    """
     import time
-    t_total = time.time()
+    processing_time = 0.0
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     # Step 1 — Capture
@@ -356,6 +361,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     except RuntimeError as e:
         print(f"  [CAPTURE ERROR] {e}", flush=True)
         return
+    processing_time += time.time() - t0
     print(f"  Done  ({time.time()-t0:.2f}s)  — {raw_bgr.shape[1]}x{raw_bgr.shape[0]}", flush=True)
 
     # Save raw photo
@@ -397,6 +403,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     except Exception as e:
         print(f"  [PREPROCESS ERROR] {e}", flush=True)
         return
+    processing_time += time.time() - t0
     print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
 
     # Step 3 — YOLO
@@ -413,6 +420,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
             suppression = np.zeros(output_size, dtype=bool)
             issues, detected_counts, yolo_bgr = [], {}, pcb_bgr
         counts_str = ", ".join(f"{k}:{v}" for k, v in detected_counts.items())
+        processing_time += time.time() - t0
         print(f"  Done  ({time.time()-t0:.2f}s)  [{counts_str}]", flush=True)
         if issues:
             print(f"  [COMPONENT ISSUES] {', '.join(issues)}", flush=True)
@@ -431,6 +439,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     except Exception as e:
         print(f"  [INFERENCE ERROR] {e}", flush=True)
         return
+    processing_time += time.time() - t0
     print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
 
     raw_heatmap = np.array(masks[0], dtype=np.float32)
@@ -470,12 +479,13 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     try:
         save_result(pcb_bgr, yolo_bgr, raw_heatmap, score, label, issues,
                     result_path, surface_fail=surface_fail)
+        processing_time += time.time() - t0
         print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
         print(f"  Raw    → {raw_path}", flush=True)
         print(f"  Result → {result_path}", flush=True)
     except Exception as e:
         print(f"  [SAVE ERROR] {e}", flush=True)
-    print(f"  Total time: {time.time()-t_total:.2f}s\n", flush=True)
+    print(f"  Total time: {processing_time:.2f}s\n", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -522,12 +532,20 @@ def main():
         "--no_yolo", action="store_true",
         help="Skip YOLO step and run PatchCore only"
     )
+    parser.add_argument(
+        "--suppress_dilation", type=int, default=None,
+        help="Override yolo.suppress_dilation: expand screw mask edge outward "
+             "by N px (e.g. 20 if background screw halos appear in the heatmap)"
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
 
     device_str = args.device or cfg["inference"].get("device", "cuda")
     device     = torch.device(device_str)
+
+    if args.suppress_dilation is not None:
+        cfg.setdefault("yolo", {})["suppress_dilation"] = args.suppress_dilation
 
     # Load YOLO
     yolo_model = None
@@ -541,7 +559,7 @@ def main():
 
     # Load PatchCore
     print(f"Loading PatchCore from: {args.model_path}", flush=True)
-    nn_method = patchcore.common.FaissNN(False, 4)
+    nn_method = patchcore.common.FaissNN(False, os.cpu_count())
     pc        = patchcore.patchcore.PatchCore(device)
     pc.load_from_path(args.model_path, device, nn_method)
     pc.eval()

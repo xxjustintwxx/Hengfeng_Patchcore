@@ -1,0 +1,169 @@
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  background: #f4f5f7;
+  color: #1a1a1a;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+  background: #1f2937;
+  color: white;
+}
+
+header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.link-btn {
+  background: none;
+  border: 1px solid #4b5563;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+.link-btn:hover { background: #374151; }
+
+.screen {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+form label {
+  display: block;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+form input, form select {
+  display: block;
+  margin-top: 6px;
+  padding: 8px;
+  width: 100%;
+  max-width: 320px;
+  font-size: 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+form select {
+  max-width: 560px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+button:hover { background: #1d4ed8; }
+button.secondary {
+  background: #6b7280;
+}
+button.secondary:hover { background: #4b5563; }
+
+.btn-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 12px;
+}
+
+.status {
+  color: #4b5563;
+  margin-top: 12px;
+}
+
+#roi-preview-wrap img {
+  max-width: 100%;
+  max-height: 45vh;
+  width: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  margin-top: 12px;
+  display: block;
+}
+
+.badge {
+  display: inline-block;
+  padding: 6px 18px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 16px;
+}
+.badge.ok { background: #dcfce7; color: #166534; }
+.badge.ng { background: #fee2e2; color: #991b1b; }
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.panel h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.panel img {
+  width: 100%;
+  border-radius: 4px;
+  display: block;
+}
+
+.img-wrap {
+  position: relative;
+}
+
+#overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#threshold-controls {
+  margin: 20px 0;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+#threshold-slider {
+  width: 100%;
+  margin-top: 8px;
+}
+
+#component-counts ul, #issues-list ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+#issues-list {
+  color: #991b1b;
+}

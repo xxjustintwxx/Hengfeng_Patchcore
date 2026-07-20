@@ -20,10 +20,10 @@ yolo:
   nms_iou: 0.20         # global NMS IoU threshold (lower = stricter deduplication)
   imgsz: 1280           # YOLO inference resolution
   class_conf:           # per-class confidence override (must be >= conf)
-    0: 0.25             # Main IC
-    1: 0.25             # connecter
-    2: 0.55             # resistor (higher = fewer false detections)
-    3: 0.25             # screw
+    0: 0.55             # Main IC
+    1: 0.55             # connecter
+    2: 0.55             # resistor
+    3: 0.55             # screw
   expected_counts:      # exact component count check — NG if any mismatch
     0: 1                # Main IC
     1: 4                # connecter

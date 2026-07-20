@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PCB Inspection</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>PCB Inspection</h1>
+    <nav id="nav-links">
+      <button id="nav-settings" class="link-btn">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Screen 1: Settings -->
+    <section id="screen-settings" class="screen">
+      <h2 id="settings-heading">Setup</h2>
+      <form id="settings-form">
+        <label>
+          PatchCore model
+          <select id="model-select" required></select>
+        </label>
+        <label>
+          Screw suppression dilation (px)
+          <input type="number" id="dilation-input" min="0" step="1" value="0">
+        </label>
+        <label>
+          NG threshold
+          <input type="number" id="threshold-input" step="any" value="200">
+        </label>
+        <div class="btn-row">
+          <button type="submit" id="settings-save-btn">Start</button>
+          <button type="button" id="settings-cancel-btn" class="secondary" hidden>Cancel</button>
+        </div>
+      </form>
+      <p id="settings-status" class="status"></p>
+    </section>
+
+    <!-- Screen 2: Capture -->
+    <section id="screen-capture" class="screen" hidden>
+      <div id="capture-controls">
+        <h2>Capture</h2>
+        <p id="active-settings" class="status"></p>
+        <button id="capture-btn">Capture</button>
+        <p id="capture-status" class="status"></p>
+
+        <div id="roi-preview-wrap" hidden>
+          <h3>ROI preview — confirm before running inference</h3>
+          <div class="btn-row">
+            <button id="run-inference-btn">Run inference</button>
+            <button id="retake-btn" class="secondary">Retake</button>
+          </div>
+          <img id="roi-preview-img" alt="ROI preview">
+        </div>
+      </div>
+
+      <div id="inference-progress" hidden>
+        <h2>Inference</h2>
+        <p id="infer-timer" class="status"></p>
+        <div class="btn-row">
+          <button id="cancel-inference-btn" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Screen 3: Result -->
+    <section id="screen-result" class="screen" hidden>
+      <h2>Result</h2>
+      <div id="verdict-badge" class="badge"></div>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <h3>YOLO detections</h3>
+          <img id="yolo-img" alt="YOLO detections">
+        </div>
+        <div class="panel">
+          <h3>Anomaly heatmap</h3>
+          <img id="heatmap-img" alt="Anomaly heatmap">
+        </div>
+        <div class="panel">
+          <h3>Flagged regions</h3>
+          <div class="img-wrap">
+            <img id="pcb-img" alt="Cropped PCB">
+            <canvas id="overlay-canvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div id="threshold-controls">
+        <p class="status">NG threshold: <span id="ng-threshold-value"></span></p>
+        <label for="threshold-slider">
+          Flag threshold: <span id="threshold-value"></span>
+        </label>
+        <input type="range" id="threshold-slider" step="0.1">
+      </div>
+
+      <div id="component-counts"></div>
+      <div id="issues-list"></div>
+      <p class="status">Score: <span id="score-value"></span>  |  Inference time: <span id="infer-time-value"></span>s</p>
+      <p id="timing-breakdown" class="status"></p>
+      <div class="btn-row">
+        <button id="capture-again-btn">Capture another</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
