@@ -3,8 +3,8 @@
 
 camera:
   url: "http://192.168.0.135:8080/shot.jpg"
-  timeout: 3.0          # seconds per HTTP request
-  retries: 3            # total attempts before giving up
+  timeout: 1.5          # seconds per HTTP request
+  retries: 2            # total attempts before giving up
   retry_delay: 0.5      # seconds between failed attempts
   pre_delay: 0.3        # seconds to wait before each capture (exposure safety margin)
 

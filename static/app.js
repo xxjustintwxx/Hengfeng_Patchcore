@@ -33,6 +33,11 @@ function postSettingsScreen() {
   return state.lastResult ? "result" : "capture";
 }
 
+function setStatus(el, text, isError = false) {
+  el.textContent = text;
+  el.classList.toggle("error", isError);
+}
+
 // ---------------------------------------------------------------------------
 // Settings screen
 // ---------------------------------------------------------------------------
@@ -53,7 +58,7 @@ async function loadModels() {
 document.getElementById("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const statusEl = document.getElementById("settings-status");
-  statusEl.textContent = "Loading model...";
+  setStatus(statusEl, "Loading model...");
 
   const model_path = document.getElementById("model-select").value;
   const suppress_dilation = parseInt(document.getElementById("dilation-input").value || "0", 10);
@@ -67,12 +72,12 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
   });
   const data = await res.json();
   if (!res.ok) {
-    statusEl.textContent = "Error: " + data.error;
+    setStatus(statusEl, "Error: " + data.error, true);
     return;
   }
 
   state.activeSettings = data;
-  statusEl.textContent = `Model loaded in ${data.load_time}s.`;
+  setStatus(statusEl, `Model loaded in ${data.load_time}s.`);
   updateActiveSettingsLabel();
   // Settings just apply to the *next* capture — they don't touch a result
   // that's already on screen.
@@ -80,7 +85,7 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
 });
 
 document.getElementById("settings-cancel-btn").addEventListener("click", () => {
-  document.getElementById("settings-status").textContent = "";
+  setStatus(document.getElementById("settings-status"), "");
   showScreen(postSettingsScreen());
 });
 
@@ -112,7 +117,7 @@ function updateSettingsScreenChrome() {
 }
 
 document.getElementById("nav-settings").addEventListener("click", () => {
-  document.getElementById("settings-status").textContent = "";
+  setStatus(document.getElementById("settings-status"), "");
   updateSettingsScreenChrome();
   populateSettingsForm();
   showScreen("settings");
@@ -124,13 +129,13 @@ document.getElementById("nav-settings").addEventListener("click", () => {
 
 document.getElementById("capture-btn").addEventListener("click", async () => {
   const statusEl = document.getElementById("capture-status");
-  statusEl.textContent = "Capturing...";
+  setStatus(statusEl, "Capturing...");
   document.getElementById("roi-preview-wrap").hidden = true;
 
   const res = await fetch("/api/capture", { method: "POST" });
   const data = await res.json();
   if (!res.ok) {
-    statusEl.textContent = "Error: " + data.error;
+    setStatus(statusEl, "Error: " + data.error, true);
     return;
   }
 
@@ -138,13 +143,13 @@ document.getElementById("capture-btn").addEventListener("click", async () => {
   document.getElementById("roi-preview-img").src = data.preview_image;
   document.getElementById("roi-preview-wrap").hidden = false;
   document.getElementById("capture-btn").hidden = true;
-  statusEl.textContent = "Captured. Confirm the ROI box looks right before running inference.";
+  setStatus(statusEl, "Captured. Confirm the ROI box looks right before running inference.");
 });
 
 document.getElementById("retake-btn").addEventListener("click", () => {
   document.getElementById("roi-preview-wrap").hidden = true;
   document.getElementById("capture-btn").hidden = false;
-  document.getElementById("capture-status").textContent = "";
+  setStatus(document.getElementById("capture-status"), "");
   state.captureId = null;
 });
 
@@ -170,7 +175,7 @@ document.getElementById("cancel-inference-btn").addEventListener("click", () => 
 document.getElementById("run-inference-btn").addEventListener("click", async () => {
   const statusEl = document.getElementById("capture-status");
   if (!state.captureId) {
-    statusEl.textContent = "No pending capture — click Capture first.";
+    setStatus(statusEl, "No pending capture — click Capture first.", true);
     return;
   }
 
@@ -212,7 +217,7 @@ document.getElementById("run-inference-btn").addEventListener("click", async () 
     showCaptureControls();
     document.getElementById("roi-preview-wrap").hidden = true;
     state.captureId = null;
-    statusEl.textContent = "Inference cancelled. Click Capture to try again.";
+    setStatus(statusEl, "Inference cancelled. Click Capture to try again.");
     return;
   }
 
@@ -221,7 +226,7 @@ document.getElementById("run-inference-btn").addEventListener("click", async () 
   if (!res.ok) {
     showCaptureControls();
     document.getElementById("roi-preview-wrap").hidden = true;
-    statusEl.textContent = "Error: " + data.error;
+    setStatus(statusEl, "Error: " + data.error, true);
     return;
   }
 
@@ -235,7 +240,7 @@ document.getElementById("run-inference-btn").addEventListener("click", async () 
 document.getElementById("capture-again-btn").addEventListener("click", () => {
   showCaptureControls();
   document.getElementById("roi-preview-wrap").hidden = true;
-  document.getElementById("capture-status").textContent = "";
+  setStatus(document.getElementById("capture-status"), "");
   showScreen("capture");
 });
 
@@ -244,7 +249,13 @@ document.getElementById("capture-again-btn").addEventListener("click", () => {
 // ---------------------------------------------------------------------------
 
 function renderResult(data) {
+  document.getElementById("result-details").hidden = true;
+  const toggleBtn = document.getElementById("toggle-details-btn");
+  toggleBtn.classList.remove("expanded");
+  toggleBtn.querySelector("span").textContent = "More details";
+
   document.getElementById("pcb-img").src = data.pcb_image;
+  document.getElementById("pcb-img-preview").src = data.pcb_image;
   document.getElementById("yolo-img").src = data.yolo_image;
   document.getElementById("heatmap-img").src = data.heatmap_image;
   document.getElementById("score-value").textContent = data.score.toFixed(4);
@@ -282,12 +293,13 @@ function renderResult(data) {
   updateThresholdValueLabel(slider.value);
   updateSliderFill(slider);
 
-  const pcbImg = document.getElementById("pcb-img");
   const draw = () => renderOverlay(data.grid, parseFloat(slider.value));
-  if (pcbImg.complete) {
-    draw();
-  } else {
-    pcbImg.onload = draw;
+  for (const imgEl of [document.getElementById("pcb-img"), document.getElementById("pcb-img-preview")]) {
+    if (imgEl.complete) {
+      draw();
+    } else {
+      imgEl.onload = draw;
+    }
   }
   // The verdict badge always reflects the real configured NG threshold, not
   // wherever the slider happens to sit -- the slider's own range is clamped
@@ -296,6 +308,23 @@ function renderResult(data) {
   // actual threshold being evaluated.
   updateVerdict(data, data.suggested_threshold);
 }
+
+document.getElementById("toggle-details-btn").addEventListener("click", () => {
+  const details = document.getElementById("result-details");
+  const btn = document.getElementById("toggle-details-btn");
+  const willShow = details.hidden;
+  details.hidden = !willShow;
+  btn.classList.toggle("expanded", willShow);
+  btn.querySelector("span").textContent = willShow ? "Hide details" : "More details";
+
+  // The image was zero-size while its container was display:none, so the
+  // overlay canvas needs to be resized/redrawn now that it can actually
+  // measure the image's real rendered dimensions.
+  if (willShow && state.lastResult) {
+    const slider = document.getElementById("threshold-slider");
+    renderOverlay(state.lastResult.grid, parseFloat(slider.value));
+  }
+});
 
 document.getElementById("threshold-slider").addEventListener("input", (e) => {
   const threshold = parseFloat(e.target.value);
@@ -317,34 +346,44 @@ function updateSliderFill(slider) {
     `linear-gradient(90deg, var(--accent) ${pct}%, var(--border-strong) ${pct}%)`;
 }
 
+function checkIcon(cls) {
+  return cls === "ok"
+    ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
+    : '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
+}
+
 function updateVerdict(data, threshold) {
   const badge = document.getElementById("verdict-badge");
   const surfaceFail = data.score >= threshold;
-  let label, cls;
-  if (data.issues.length || surfaceFail) {
-    label = "NG";
-    cls = "ng";
-  } else {
-    label = "OK";
-    cls = "ok";
-  }
-  const icon = cls === "ok"
-    ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
-    : '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
-  badge.innerHTML = icon + "<span>" + label + "</span>";
-  badge.className = "badge " + cls;
+  const componentsFail = data.issues.length > 0;
+  const cls = (componentsFail || surfaceFail) ? "ng" : "ok";
+  const label = cls === "ng" ? "NG" : "OK";
+
+  badge.innerHTML = checkIcon(cls) + "<span>" + label + "</span>";
+  badge.className = "badge badge-lg " + cls;
+
+  const surfaceCls = surfaceFail ? "ng" : "ok";
+  const surfaceEl = document.getElementById("surface-status");
+  const surfaceText = surfaceFail
+    ? `Flagged regions: NG — score ${data.score.toFixed(2)} ≥ ${threshold}`
+    : "Flagged regions: OK";
+  surfaceEl.innerHTML = checkIcon(surfaceCls) + `<span>${surfaceText}</span>`;
+  surfaceEl.className = "status-chip " + surfaceCls;
+
+  const componentsCls = componentsFail ? "ng" : "ok";
+  const componentsEl = document.getElementById("components-status");
+  const componentsText = componentsFail
+    ? `Components: NG — ${data.issues.join(", ")}`
+    : "Components: OK";
+  componentsEl.innerHTML = checkIcon(componentsCls) + `<span>${componentsText}</span>`;
+  componentsEl.className = "status-chip " + componentsCls;
 
   document.getElementById("score-value").classList.toggle("score-ng", surfaceFail);
 }
 
 function renderOverlay(grid, threshold) {
-  const pcbImg = document.getElementById("pcb-img");
-  const canvas = document.getElementById("overlay-canvas");
-  const displayW = pcbImg.clientWidth || pcbImg.naturalWidth;
-  const displayH = pcbImg.clientHeight || pcbImg.naturalHeight;
-  canvas.width = displayW;
-  canvas.height = displayH;
-
+  // Built once and stamped onto every img/canvas pair below -- the summary
+  // view and the "More details" panel both show the same flagged regions.
   const off = document.createElement("canvas");
   off.width = grid.width;
   off.height = grid.height;
@@ -365,10 +404,19 @@ function renderOverlay(grid, threshold) {
   }
   offCtx.putImageData(imgData, 0, 0);
 
-  const ctx = canvas.getContext("2d");
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
+  for (const [imgId, canvasId] of [["pcb-img", "overlay-canvas"], ["pcb-img-preview", "overlay-canvas-preview"]]) {
+    const imgEl = document.getElementById(imgId);
+    const canvas = document.getElementById(canvasId);
+    const displayW = imgEl.clientWidth || imgEl.naturalWidth;
+    const displayH = imgEl.clientHeight || imgEl.naturalHeight;
+    canvas.width = displayW;
+    canvas.height = displayH;
+
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
+  }
 }
 
 window.addEventListener("resize", () => {

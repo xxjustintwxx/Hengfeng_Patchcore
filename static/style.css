@@ -351,7 +351,10 @@ button:active { transform: translateY(1px); }
   color: var(--text-muted);
   margin: 14px 0 0;
   font-size: 0.88rem;
+  overflow-wrap: break-word;
 }
+
+.status.error { color: var(--ng); font-weight: 600; }
 
 .status.mono { font-family: var(--font-mono); font-size: 0.82rem; }
 
@@ -397,15 +400,12 @@ button:active { transform: translateY(1px); }
 
 /* --- Result screen --- */
 
-.result-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 28px;
+.result-summary {
+  margin-bottom: 24px;
 }
-.result-head h2 { margin: 0; }
-.result-head .badge { margin-left: auto; }
+.result-summary h2 { margin: 0 0 16px; text-align: left; }
+.verdict-center { text-align: center; }
+.verdict-center .badge-lg { margin-bottom: 16px; }
 
 .badge {
   display: inline-flex;
@@ -421,6 +421,44 @@ button:active { transform: translateY(1px); }
 }
 .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .badge.ng { background: var(--ng-soft); color: var(--ng); }
+
+.badge-lg {
+  padding: 12px 28px;
+  font-size: 1.4rem;
+  gap: 10px;
+}
+.badge-lg svg { width: 20px; height: 20px; }
+
+.verdict-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.flagged-preview {
+  max-width: 480px;
+  margin: 0 auto 20px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.status-chip.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.status-chip.ng { background: var(--ng-soft); color: var(--ng); border-color: color-mix(in srgb, var(--ng) 30%, transparent); }
+
+.details-toggle { margin-bottom: 20px; }
+.details-toggle .chevron { transition: transform 0.15s ease; }
+.details-toggle.expanded .chevron { transform: rotate(180deg); }
+
+#result-details { margin-bottom: 20px; }
 
 .panel-grid {
   display: grid;
@@ -454,7 +492,7 @@ button:active { transform: translateY(1px); }
 }
 .img-wrap img { margin-top: 0; }
 
-#overlay-canvas {
+#overlay-canvas, #overlay-canvas-preview {
   position: absolute;
   top: 0;
   left: 0;

@@ -51,6 +51,10 @@ LABEL_CLASSES    = {0, 1, 3}   # resistors excluded (35 labels flood the image)
 SUPPRESS_CLASSES = {3}          # screws suppressed from PatchCore heatmap
 SUPPRESS_VALUE   = -1.0         # sentinel for suppressed pixels (excluded from colormap scaling)
 CLASS_NMS_IOU    = {3: 0.30}    # per-class post-NMS IoU for screw deduplication
+CROSS_CLASS_NMS_IOU = 0.5       # class-agnostic: when two DIFFERENT-class boxes
+                                # overlap this much (e.g. a connecter and a
+                                # spurious Main IC both firing on the same
+                                # physical part), keep only the higher-confidence one
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -111,7 +115,30 @@ def _per_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
     return keep
 
 
-def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict) -> np.ndarray:
+def _cross_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
+                     keep_mask: np.ndarray, iou_threshold: float) -> np.ndarray:
+    """Suppress lower-confidence boxes that heavily overlap a higher-confidence
+    box of a DIFFERENT class. torchvision's nms doesn't look at class at all,
+    so running it across every surviving box (regardless of class) is exactly
+    class-agnostic dedup: only the highest-confidence box in each overlapping
+    cluster survives. Only boxes that already passed _per_class_nms are considered.
+    """
+    from torchvision.ops import nms as tv_nms
+    idx = np.where(keep_mask)[0]
+    if len(idx) <= 1:
+        return keep_mask
+    kept_local = tv_nms(
+        torch.tensor(boxes_xyxy[idx], dtype=torch.float32),
+        torch.tensor(confs[idx],      dtype=torch.float32),
+        iou_threshold,
+    ).numpy()
+    new_keep = np.zeros_like(keep_mask)
+    new_keep[idx[kept_local]] = True
+    return new_keep
+
+
+def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
+                       nms_keep: np.ndarray = None) -> np.ndarray:
     """Draw YOLO detections on bgr: filled semi-transparent masks + boxes + labels."""
     out     = bgr.copy()
     overlay = bgr.copy()
@@ -126,6 +153,8 @@ def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict) -> np.ndarra
     masks_np = yolo_res.masks.data.cpu().numpy() if yolo_res.masks is not None else None
 
     for i, (cls_id, conf) in enumerate(zip(cls_ids, confs)):
+        if nms_keep is not None and not nms_keep[i]:
+            continue
         if conf < class_conf.get(cls_id, 0.25):
             continue
         color = CLASS_COLORS.get(cls_id, (200, 200, 200))
@@ -173,6 +202,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         confs      = yolo_res.boxes.conf.cpu().numpy()
         boxes_xyxy = yolo_res.boxes.xyxy.cpu().numpy()
         nms_keep   = _per_class_nms(boxes_xyxy, confs, cls_ids, CLASS_NMS_IOU)
+        nms_keep   = _cross_class_nms(boxes_xyxy, confs, nms_keep, CROSS_CLASS_NMS_IOU)
 
         for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
             if not keep:
@@ -202,7 +232,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
             tag = "missing" if got < exp else "extra"
             issues.append(f"{CLASS_NAMES[cls_id]} ({got}/{exp} {tag})")
 
-    yolo_bgr        = _draw_yolo_overlay(pcb_bgr, yolo_res, class_conf)
+    yolo_bgr        = _draw_yolo_overlay(pcb_bgr, yolo_res, class_conf, nms_keep)
     detected_counts = {CLASS_NAMES[i]: count_by_cls[i] for i in range(len(CLASS_NAMES))}
 
     return suppression, issues, detected_counts, yolo_bgr

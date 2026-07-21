@@ -103,43 +103,68 @@
 
     <!-- Screen 3: Result -->
     <section id="screen-result" class="screen" hidden>
-      <div class="result-head">
+      <div class="result-summary">
         <h2>Result</h2>
-        <div id="verdict-badge" class="badge"></div>
-      </div>
-
-      <div class="panel-grid">
-        <div class="panel">
-          <p class="eyebrow">YOLO detections</p>
-          <img id="yolo-img" alt="YOLO detections">
-        </div>
-        <div class="panel">
-          <p class="eyebrow">Anomaly heatmap</p>
-          <img id="heatmap-img" alt="Anomaly heatmap">
-        </div>
-        <div class="panel">
-          <p class="eyebrow">Flagged regions</p>
-          <div class="img-wrap">
-            <img id="pcb-img" alt="Cropped PCB">
-            <canvas id="overlay-canvas"></canvas>
+        <div class="verdict-center">
+          <div id="verdict-badge" class="badge badge-lg"></div>
+          <div class="verdict-breakdown">
+            <div id="surface-status" class="status-chip"></div>
+            <div id="components-status" class="status-chip"></div>
           </div>
         </div>
       </div>
 
-      <div id="threshold-controls">
-        <p class="status mono">NG threshold: <span id="ng-threshold-value"></span></p>
-        <label for="threshold-slider">
-          Flag threshold: <span id="threshold-value" class="mono"></span>
-        </label>
-        <input type="range" id="threshold-slider" step="0.1">
+      <div class="panel flagged-preview">
+        <p class="eyebrow">Flagged regions</p>
+        <div class="img-wrap">
+          <img id="pcb-img-preview" alt="Cropped PCB">
+          <canvas id="overlay-canvas-preview"></canvas>
+        </div>
       </div>
 
-      <div class="result-meta">
-        <div id="component-counts"></div>
-        <div id="issues-list"></div>
+      <button id="toggle-details-btn" type="button" class="btn-ghost details-toggle">
+        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6 9 6 6 6-6"></path>
+        </svg>
+        <span>More details</span>
+      </button>
+
+      <div id="result-details" hidden>
+        <div class="panel-grid">
+          <div class="panel">
+            <p class="eyebrow">YOLO detections</p>
+            <img id="yolo-img" alt="YOLO detections">
+          </div>
+          <div class="panel">
+            <p class="eyebrow">Anomaly heatmap</p>
+            <img id="heatmap-img" alt="Anomaly heatmap">
+          </div>
+          <div class="panel">
+            <p class="eyebrow">Flagged regions</p>
+            <div class="img-wrap">
+              <img id="pcb-img" alt="Cropped PCB">
+              <canvas id="overlay-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div id="threshold-controls">
+          <p class="status mono">NG threshold: <span id="ng-threshold-value"></span></p>
+          <label for="threshold-slider">
+            Flag threshold: <span id="threshold-value" class="mono"></span>
+          </label>
+          <input type="range" id="threshold-slider" step="0.1">
+        </div>
+
+        <div class="result-meta">
+          <div id="component-counts"></div>
+          <div id="issues-list"></div>
+        </div>
+        <p class="status mono">Score: <span id="score-value"></span>  |  Inference time: <span id="infer-time-value"></span>s</p>
+        <p id="timing-breakdown" class="status mono"></p>
       </div>
-      <p class="status mono">Score: <span id="score-value"></span>  |  Inference time: <span id="infer-time-value"></span>s</p>
-      <p id="timing-breakdown" class="status mono"></p>
+
       <div class="btn-row">
         <button id="capture-again-btn" class="btn-primary">Capture another</button>
       </div>

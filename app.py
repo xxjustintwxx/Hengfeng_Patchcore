@@ -200,7 +200,12 @@ def api_capture():
             pre_delay=cam.get("pre_delay", 0.3),
         )
     except RuntimeError as e:
-        return jsonify({"error": str(e)}), 502
+        print(f"[CAPTURE ERROR] {e}", flush=True)
+        return jsonify({
+            "error": f"Can't reach the camera at {cam['url']}. "
+                     "Check that IP Webcam is running on the phone and the "
+                     "USB/port-forward connection is active."
+        }), 502
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     captures_dir = STATE["cfg"]["output"]["captures_dir"]
