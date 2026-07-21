@@ -1,0 +1,52 @@
+# Live inference configuration for YOLO + PatchCore + Pixel 6 camera — CT11 module
+# Run: python live_infer.py --config configs/CT11/live_config.yaml
+#
+# PLACEHOLDER: this was scaffolded from configs/640C/live_config.yaml before any
+# CT11 model/weights existed. Fields marked below are copied from 640C and are
+# almost certainly wrong for CT11's actual board layout/camera positioning --
+# update them once CT11 has a trained YOLO + PatchCore model.
+
+camera:
+  url: "http://192.168.0.135:8080/shot.jpg"
+  timeout: 1.5          # seconds per HTTP request
+  retries: 2            # total attempts before giving up
+  retry_delay: 0.5      # seconds between failed attempts
+  pre_delay: 0.3        # seconds to wait before each capture (exposure safety margin)
+
+preprocessing:
+  # PLACEHOLDER (copied from 640C) -- re-measure ROI crop in pixels for CT11's
+  # actual board position/size: [x, y, width, height], must match preprocess_config.yaml
+  roi: [640, 1620, 950, 820]
+  # Output resolution after crop + resize — must match the trained PatchCore model
+  output_size: [1024, 1024]
+
+yolo:
+  weights: "models/yolo/CT11/pcb_seg/weights/best.pt"  # does not exist yet
+  conf: 0.25            # global confidence floor
+  nms_iou: 0.20         # global NMS IoU threshold (lower = stricter deduplication)
+  imgsz: 1280           # YOLO inference resolution
+  class_conf:           # per-class confidence override (must be >= conf)
+    0: 0.55             # Main IC
+    1: 0.55             # connecter
+    2: 0.55             # resistor
+    3: 0.55             # screw
+  # PLACEHOLDER (copied from 640C) -- CT11's actual component counts are almost
+  # certainly different; update once CT11's board layout is known.
+  expected_counts:      # exact component count check — NG if any mismatch
+    0: 1                # Main IC
+    1: 4                # connecter
+    2: 35               # resistor
+    3: 4                # screw
+  suppress_dilation: 0  # expand screw mask edge outward by N px
+                        # set to 20 if background screw halos appear in the heatmap
+
+inference:
+  device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
+  # Anomaly score threshold for OK/NG surface verdict.
+  # Set to null to skip surface NG labelling (component count still checked).
+  score_threshold: null
+
+output:
+  patchcore_model: "results/IR_Module/CT11/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"  # does not exist yet
+  captures_dir: "./captures/CT11"      # raw phone photos, timestamped
+  heatmaps_dir: "./results/live/CT11"  # 3-panel result images, timestamped

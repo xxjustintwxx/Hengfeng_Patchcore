@@ -1,0 +1,11 @@
+# PLACEHOLDER: copied from configs/640C/preprocess_config.yaml -- re-measure
+# for CT11's actual board position/size before running preprocess.py on real
+# CT11 training data. Must stay in sync with configs/CT11/live_config.yaml's
+# preprocessing section.
+
+preprocessing:
+  # ROI crop in pixels: [x, y, width, height]
+  roi: [640, 1620, 950, 820]
+  # Output resolution — change this to try different resolutions
+  # After changing, re-run preprocess.py; output folder is auto-named data/ir_module_<W>x<H>/
+  output_size: [1024, 1024]

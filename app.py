@@ -88,13 +88,21 @@ def discover_models():
     Only results/ is scanned -- models/ holds the generic MVTec benchmark
     categories (bottle, cable, ...) used during development, not this
     project's actual models.
+
+    Models live under results/IR_Module/<module>/<variant>/models/mvtec_ir_module
+    (e.g. .../640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/...) -- the label
+    includes the <module> segment so multiple modules with the same variant
+    naming (640C, CT11, ...) don't show up as identical, ambiguous entries
+    in the model dropdown.
     """
     pattern = os.path.join(str(ROOT), "results", "**", "patchcore_params.pkl")
+    ir_module_root = os.path.join(str(ROOT), "results", "IR_Module")
     found = []
     for params_path in sorted(glob.glob(pattern, recursive=True)):
         model_dir = os.path.dirname(params_path)
         rel_path = os.path.relpath(model_dir, str(ROOT)).replace("\\", "/")
-        label = os.path.basename(os.path.dirname(os.path.dirname(model_dir)))
+        variant_dir = os.path.dirname(os.path.dirname(model_dir))
+        label = os.path.relpath(variant_dir, ir_module_root).replace("\\", "/")
         found.append({"path": rel_path, "label": label})
     return found
 
