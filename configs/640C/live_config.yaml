@@ -1,0 +1,44 @@
+# Live inference configuration for YOLO + PatchCore + Pixel 6 camera — 640C module
+# Run: python live_infer.py --config configs/640C/live_config.yaml
+
+camera:
+  url: "http://192.168.0.135:8080/shot.jpg"
+  timeout: 1.5          # seconds per HTTP request
+  retries: 2            # total attempts before giving up
+  retry_delay: 0.5      # seconds between failed attempts
+  pre_delay: 0.3        # seconds to wait before each capture (exposure safety margin)
+
+preprocessing:
+  # ROI crop in pixels: [x, y, width, height] — must match preprocess_config.yaml
+  roi: [640, 1620, 950, 820]
+  # Output resolution after crop + resize — must match the trained PatchCore model
+  output_size: [1024, 1024]
+
+yolo:
+  weights: "models/yolo/640C/pcb_seg/weights/best.pt"
+  conf: 0.25            # global confidence floor
+  nms_iou: 0.20         # global NMS IoU threshold (lower = stricter deduplication)
+  imgsz: 1280           # YOLO inference resolution
+  class_conf:           # per-class confidence override (must be >= conf)
+    0: 0.55             # Main IC
+    1: 0.55             # connecter
+    2: 0.55             # resistor
+    3: 0.55             # screw
+  expected_counts:      # exact component count check — NG if any mismatch
+    0: 1                # Main IC
+    1: 4                # connecter
+    2: 35               # resistor
+    3: 4                # screw
+  suppress_dilation: 0  # expand screw mask edge outward by N px
+                        # set to 20 if background screw halos appear in the heatmap
+
+inference:
+  device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
+  # Anomaly score threshold for OK/NG surface verdict.
+  # Set to null to skip surface NG labelling (component count still checked).
+  score_threshold: null
+
+output:
+  patchcore_model: "results/IR_Module/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+  captures_dir: "./captures/640C"      # raw phone photos, timestamped
+  heatmaps_dir: "./results/live/640C"  # 3-panel result images, timestamped

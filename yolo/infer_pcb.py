@@ -14,13 +14,13 @@ Pipeline:
 
 Usage:
   # Single image
-  python yolo/infer_pcb.py --image data/ir_module_1024/ir_module/test/defect/IMG-defect-01.jpg
+  python yolo/infer_pcb.py --image data/640C/ir_module_1024/ir_module/test/defect/IMG-defect-01_ns.jpg
 
   # Whole folder (shared colorbar scale, originals only)
-  python yolo/infer_pcb.py --image_dir data/ir_module_1024/ir_module/test/defect --save
+  python yolo/infer_pcb.py --image_dir data/640C/ir_module_1024/ir_module/test/defect --save
 
   # Include augmented images too
-  python yolo/infer_pcb.py --image_dir data/ir_module_1024/ir_module/test/defect --save --include_aug
+  python yolo/infer_pcb.py --image_dir data/640C/ir_module_1024/ir_module/test/defect --save --include_aug
 """
 import argparse
 import sys
@@ -40,9 +40,9 @@ import patchcore.common
 import patchcore.patchcore
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-YOLO_WEIGHTS   = ROOT / "models/yolo/pcb_seg/weights/best.pt"
-PATCHCORE_PATH = ROOT / "results/IR_Module/ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1/models/mvtec_ir_module"
-OUTPUT_BASE    = ROOT / "results/yolo/pcb_inspection"
+YOLO_WEIGHTS   = ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"
+PATCHCORE_PATH = ROOT / "results/IR_Module/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+OUTPUT_BASE    = ROOT / "results/yolo/640C/pcb_inspection"
 
 CLASS_NAMES    = ["Main IC", "connecter", "resistor", "screw"]
 

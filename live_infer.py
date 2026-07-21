@@ -10,9 +10,9 @@ Pipeline:
   6. Save        → raw photo + 3-panel result (YOLO overlay / anomaly map / peak location)
 
 Usage:
-  python live_infer.py --model_path results/IR_Module/<log_group>/models/mvtec_ir_module
-  python live_infer.py --model_path ... --config live_config.yaml --device cpu
-  python live_infer.py --model_path ... --no_yolo   # PatchCore-only (skip YOLO)
+  python live_infer.py --config configs/640C/live_config.yaml
+  python live_infer.py --config configs/640C/live_config.yaml --device cpu
+  python live_infer.py --config configs/640C/live_config.yaml --no_yolo   # PatchCore-only (skip YOLO)
 """
 import argparse
 import os
@@ -551,7 +551,7 @@ def main():
              "(e.g. results/IR_Module/<log_group>/models/mvtec_ir_module)"
     )
     parser.add_argument(
-        "--config", default="live_config.yaml",
+        "--config", default="configs/640C/live_config.yaml",
         help="Path to YAML config (default: live_config.yaml)"
     )
     parser.add_argument(
@@ -582,7 +582,7 @@ def main():
     if not args.no_yolo:
         cfg_yolo   = cfg.get("yolo", {})
         yolo_path  = cfg_yolo.get("weights",
-                                  str(ROOT / "models/yolo/pcb_seg/weights/best.pt"))
+                                  str(ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"))
         print(f"Loading YOLO from: {yolo_path}", flush=True)
         yolo_model = YOLO(yolo_path)
         print("YOLO ready.", flush=True)

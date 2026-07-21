@@ -4,7 +4,7 @@
 # Training set: 13 originals + 169 augmented = 182 images.
 # Coreset: approx_greedy_coreset -p 0.1 reduces ~2.98M patch features to ~298k.
 
-DATA_PATH="/work/xxjustin77xx/Hengfeng_Patchcore/data/ir_module_1024"
+DATA_PATH="/work/xxjustin77xx/Hengfeng_Patchcore/data/640C/ir_module_1024"
 RESULTS_PATH="/work/xxjustin77xx/Hengfeng_Patchcore/results"
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore

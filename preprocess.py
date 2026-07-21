@@ -21,12 +21,12 @@ import cv2
 import yaml
 
 PROJECT_ROOT = Path(__file__).parent
-CONFIG_PATH  = PROJECT_ROOT / "preprocess_config.yaml"
+CONFIG_PATH  = PROJECT_ROOT / "configs/640C/preprocess_config.yaml"
 VALID_EXTS   = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
 
 
-def load_config():
-    with open(CONFIG_PATH) as f:
+def load_config(path=CONFIG_PATH):
+    with open(path) as f:
         return yaml.safe_load(f)
 
 
@@ -101,12 +101,14 @@ def batch_process(src: Path, dst: Path, roi, output_size, only_files=None):
 def main():
     parser = argparse.ArgumentParser(description="Preprocess raw IR module images for PatchCore")
     parser.add_argument("--calibrate", metavar="IMAGE", help="Preview ROI on a sample image")
-    parser.add_argument("--src",   metavar="PATH",  help="Source image or folder (e.g. data/raw)")
+    parser.add_argument("--src",   metavar="PATH",  help="Source image or folder (e.g. data/640C/raw)")
     parser.add_argument("--split", metavar="SPLIT", help="Dataset split subfolder (e.g. train/good, test/defect)")
     parser.add_argument("--files", metavar="FILE", nargs="+", help="Only process these filenames (from --src folder)")
+    parser.add_argument("--config", default=str(CONFIG_PATH),
+                        help="Path to preprocess config YAML (default: configs/640C/preprocess_config.yaml)")
     args = parser.parse_args()
 
-    cfg         = load_config()
+    cfg         = load_config(args.config)
     roi         = cfg["preprocessing"]["roi"]
     output_size = tuple(cfg["preprocessing"]["output_size"])
     w, h        = output_size

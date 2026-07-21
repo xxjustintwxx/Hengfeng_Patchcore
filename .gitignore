@@ -1,4 +1,4 @@
-# Pretrained backbone models (2.2GB)
+# Pretrained backbone models (large)
 models/
 
 # Raw and processed dataset images
@@ -21,19 +21,15 @@ build/
 *.egg
 
 # YOLO inference result images
-results/yolo/pcb_inspection/
+results/yolo/640C/pcb_inspection/
+results/yolo/CT11/pcb_inspection/
 
 # YOLO training run artifacts (large — weights, plots, csvs)
-results/yolo/pcb_seg/
-results/yolo/pcb_seg_1280/
-results/yolo/pcb_seg_1280_s/
+results/yolo/640C/pcb_seg*/
+results/yolo/CT11/pcb_seg*/
 
-# GIFs
-*.gif
-results/gifs/
-
-# Stray model weight files
-yolo26n.pt
+# Heatmap outputs
+results/heatmaps/
 
 # Live demo outputs
 captures/
@@ -42,3 +38,4 @@ results/live/
 # Misc
 .DS_Store
 tmp/
+yolo26n.pt

@@ -346,8 +346,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Local web UI for YOLO + PatchCore live inference."
     )
-    parser.add_argument("--config", default="live_config.yaml",
-                        help="Path to YAML config (default: live_config.yaml)")
+    parser.add_argument("--config", default="configs/640C/live_config.yaml",
+                        help="Path to YAML config (default: configs/640C/live_config.yaml)")
     parser.add_argument("--device", default=None,
                         help="Override inference device: 'cuda', 'mps', or 'cpu'")
     parser.add_argument("--port", type=int, default=5000)
@@ -360,7 +360,7 @@ def main():
     STATE["device"] = torch.device(device_str)
 
     cfg_yolo = cfg.get("yolo", {})
-    yolo_path = cfg_yolo.get("weights", str(ROOT / "models/yolo/pcb_seg/weights/best.pt"))
+    yolo_path = cfg_yolo.get("weights", str(ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"))
     print(f"Loading YOLO from: {yolo_path}", flush=True)
     STATE["yolo_model"] = YOLO(yolo_path)
     print("YOLO ready.", flush=True)
