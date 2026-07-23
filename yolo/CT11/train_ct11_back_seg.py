@@ -17,15 +17,15 @@ from ultralytics import YOLO
 # ── Paths ──────────────────────────────────────────────────────────────────────
 ROOT        = Path(__file__).resolve().parent.parent.parent
 DATA_YAML   = ROOT / "data" / "CT11" / "Back" / "CT11 back" / "data.yaml"
-PRETRAINED  = ROOT / "models" / "yolo" / "yolo11m-seg.pt"
+PRETRAINED  = ROOT / "models" / "yolo" / "yolo11s-seg.pt"
 WEIGHTS_DIR = ROOT / "models" / "yolo" / "CT11" / "Back" / "pcb_seg" / "weights"
 RESULTS_DIR = ROOT / "results" / "yolo" / "CT11" / "Back"
-RUN_NAME    = "ct11_back_seg_1280_m"
+RUN_NAME    = "ct11_back_seg_1280_s"
 
 # ── Download base weights if not present ───────────────────────────────────────
 if not PRETRAINED.exists():
     print(f"Downloading yolo11m-seg.pt to {PRETRAINED} ...")
-    _tmp = YOLO("yolo11m-seg.pt")
+    _tmp = YOLO("yolo11s-seg.pt")
     downloaded = Path("yolo11m-seg.pt")
     if downloaded.exists():
         shutil.move(str(downloaded), str(PRETRAINED))
