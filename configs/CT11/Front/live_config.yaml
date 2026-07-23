@@ -1,0 +1,56 @@
+# Live inference configuration for YOLO + PatchCore + Pixel 6 camera — CT11 Front module
+# Run: python live_infer.py --config configs/CT11/Front/live_config.yaml
+#
+# Class taxonomy / expected counts / confidence thresholds are the real, already-calibrated
+# values from yolo/CT11/infer_ct11_front.py (offline batch-eval script) — not placeholders.
+
+camera:
+  url: "http://192.168.0.135:8080/shot.jpg"
+  timeout: 1.5          # seconds per HTTP request
+  retries: 2            # total attempts before giving up
+  retry_delay: 0.5      # seconds between failed attempts
+  pre_delay: 0.3        # seconds to wait before each capture (exposure safety margin)
+
+preprocessing:
+  # ROI crop in pixels: [x, y, width, height] — must match configs/CT11/Front/preprocess_config.yaml
+  roi: [700, 1600, 900, 900]
+  # Output resolution after crop + resize — must match the trained PatchCore model
+  output_size: [1024, 1024]
+
+yolo:
+  weights: "models/yolo/CT11/Front/pcb_seg/weights/best.pt"
+  conf: 0.25             # global confidence floor
+  nms_iou: 0.20          # global NMS IoU threshold (lower = stricter deduplication)
+  imgsz: 1280            # YOLO inference resolution
+  # Classes (4): 0=Main IC  1=component  2=connecter  3=resistor -- no "screw" class for CT11
+  class_names: ["Main IC", "component", "connecter", "resistor"]
+  class_colors:          # BGR
+    0: [255, 100, 0]     # Main IC   — orange
+    1: [50, 180, 255]    # component — light blue
+    2: [0, 200, 0]       # connecter — green
+    3: [0, 200, 200]     # resistor  — yellow
+  label_classes: [0, 1, 2]   # skip resistor labels (21 is too many)
+  class_conf:            # per-class confidence override (must be >= conf)
+    0: 0.25              # Main IC
+    1: 0.25              # component
+    2: 0.25              # connecter
+    3: 0.40              # resistor — raised to reduce false detections
+  expected_counts:       # exact component count check — NG if any mismatch
+    0: 1                 # Main IC
+    1: 6                 # component
+    2: 2                 # connecter
+    3: 21                # resistor
+  suppress_classes: []   # no PatchCore-heatmap suppression for CT11 Front
+  class_nms_iou: {}      # no per-class post-NMS overrides for CT11 Front
+  suppress_dilation: 0
+
+inference:
+  device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
+  # Placeholder from infer_ct11_front.py's ANOMALY_THRESH -- calibrate against real
+  # good/defect boards once live captures are available.
+  score_threshold: 190.0
+
+output:
+  patchcore_model: "results/IR_Module/CT11/CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+  captures_dir: "./captures/CT11/Front"      # raw phone photos, timestamped
+  heatmaps_dir: "./results/live/CT11/Front"  # 3-panel result images, timestamped

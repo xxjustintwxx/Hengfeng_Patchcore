@@ -138,7 +138,8 @@ def _cross_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
 
 
 def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
-                       nms_keep: np.ndarray = None) -> np.ndarray:
+                       nms_keep: np.ndarray = None, class_names=CLASS_NAMES,
+                       class_colors=CLASS_COLORS, label_classes=LABEL_CLASSES) -> np.ndarray:
     """Draw YOLO detections on bgr: filled semi-transparent masks + boxes + labels."""
     out     = bgr.copy()
     overlay = bgr.copy()
@@ -157,7 +158,7 @@ def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
             continue
         if conf < class_conf.get(cls_id, 0.25):
             continue
-        color = CLASS_COLORS.get(cls_id, (200, 200, 200))
+        color = class_colors.get(cls_id, (200, 200, 200))
 
         if masks_np is not None:
             m = cv2.resize(masks_np[i], (W, H), interpolation=cv2.INTER_LINEAR)
@@ -166,8 +167,8 @@ def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
         x1, y1, x2, y2 = xyxy[i]
         cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
 
-        if cls_id in LABEL_CLASSES:
-            label = f"{CLASS_NAMES[cls_id]} {conf:.2f}"
+        if cls_id in label_classes:
+            label = f"{class_names[cls_id]} {conf:.2f}"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
             cv2.rectangle(out, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
             cv2.putText(out, label, (x1 + 2, y1 - 4),
@@ -191,9 +192,19 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     class_conf = {int(k): v for k, v in cfg_yolo.get("class_conf", {}).items()}
     expected   = {int(k): v for k, v in cfg_yolo.get("expected_counts", {}).items()}
 
+    # Class taxonomy differs per module/side (e.g. CT11 Front/Back have
+    # different classes than 640C) -- config-driven with the historical 640C
+    # values as defaults, so configs that don't define these behave exactly
+    # as before.
+    class_names      = cfg_yolo.get("class_names", CLASS_NAMES)
+    class_colors     = {int(k): tuple(v) for k, v in cfg_yolo.get("class_colors", CLASS_COLORS).items()}
+    label_classes    = set(cfg_yolo.get("label_classes", LABEL_CLASSES))
+    suppress_classes = set(cfg_yolo.get("suppress_classes", SUPPRESS_CLASSES))
+    class_nms_iou    = {int(k): v for k, v in cfg_yolo.get("class_nms_iou", CLASS_NMS_IOU).items()}
+
     yolo_res     = yolo_model(pil_img, conf=yolo_conf, iou=yolo_iou,
                               imgsz=yolo_imgsz, verbose=False)[0]
-    count_by_cls = {i: 0 for i in range(len(CLASS_NAMES))}
+    count_by_cls = {i: 0 for i in range(len(class_names))}
     suppression  = np.zeros((H, W), dtype=bool)
 
     nms_keep = np.ones(0, dtype=bool)
@@ -201,7 +212,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         cls_ids    = yolo_res.boxes.cls.cpu().numpy().astype(int)
         confs      = yolo_res.boxes.conf.cpu().numpy()
         boxes_xyxy = yolo_res.boxes.xyxy.cpu().numpy()
-        nms_keep   = _per_class_nms(boxes_xyxy, confs, cls_ids, CLASS_NMS_IOU)
+        nms_keep   = _per_class_nms(boxes_xyxy, confs, cls_ids, class_nms_iou)
         nms_keep   = _cross_class_nms(boxes_xyxy, confs, nms_keep, CROSS_CLASS_NMS_IOU)
 
         for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
@@ -220,7 +231,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
                 continue
             if conf < class_conf.get(cls_id, yolo_conf):
                 continue
-            if cls_id in SUPPRESS_CLASSES:
+            if cls_id in suppress_classes:
                 # Resize YOLO's internal mask to PatchCore resolution
                 m = cv2.resize(mask_raw, (W, H), interpolation=cv2.INTER_NEAREST)
                 suppression |= m > 0.5
@@ -230,10 +241,11 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         got = count_by_cls[cls_id]
         if got != exp:
             tag = "missing" if got < exp else "extra"
-            issues.append(f"{CLASS_NAMES[cls_id]} ({got}/{exp} {tag})")
+            issues.append(f"{class_names[cls_id]} ({got}/{exp} {tag})")
 
-    yolo_bgr        = _draw_yolo_overlay(pcb_bgr, yolo_res, class_conf, nms_keep)
-    detected_counts = {CLASS_NAMES[i]: count_by_cls[i] for i in range(len(CLASS_NAMES))}
+    yolo_bgr        = _draw_yolo_overlay(pcb_bgr, yolo_res, class_conf, nms_keep,
+                                        class_names, class_colors, label_classes)
+    detected_counts = {class_names[i]: count_by_cls[i] for i in range(len(class_names))}
 
     return suppression, issues, detected_counts, yolo_bgr
 

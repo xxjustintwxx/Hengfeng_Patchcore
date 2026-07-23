@@ -60,13 +60,18 @@ def inject_static_versioned():
     return {"static_versioned": static_versioned}
 
 # Global, single-operator server state (no session/multi-client handling needed
-# for this local desktop tool).
+# for this local desktop tool). No profile is loaded at startup -- the user
+# picks one (640C, CT11/Front, CT11/Back, ...) on the Settings screen, which
+# loads its YOLO+PatchCore models and swaps STATE["cfg"] wholesale so camera/
+# ROI/output-dirs/class-taxonomy all switch together as one unit.
 STATE = {
     "cfg": None,
     "device": None,
-    "yolo_model": None,
-    "pc_cache": {},          # model_path -> (PatchCore, FaissNN)
+    "device_override": None,  # from --device; None means "use each profile's own inference.device"
+    "pc_cache": {},          # patchcore_model path -> PatchCore instance
+    "yolo_cache": {},        # yolo weights path -> YOLO instance
     "active_model_path": None,
+    "active_config_path": None,
     "suppress_dilation": 0,
     "score_threshold": None,
     "pending_captures": {},  # capture_id -> raw_bgr
@@ -82,28 +87,30 @@ def encode_jpeg_b64(bgr_img: np.ndarray) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
 
 
-def discover_models():
-    """Scan results/**/patchcore_params.pkl for trained PatchCore model dirs.
+def discover_profiles():
+    """Scan configs/**/live_config.yaml for inspection profiles.
 
-    Only results/ is scanned -- models/ holds the generic MVTec benchmark
-    categories (bottle, cable, ...) used during development, not this
-    project's actual models.
-
-    Models live under results/IR_Module/<module>/<variant>/models/mvtec_ir_module
-    (e.g. .../640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/...) -- the label
-    includes the <module> segment so multiple modules with the same variant
-    naming (640C, CT11, ...) don't show up as identical, ambiguous entries
-    in the model dropdown.
+    Each config fully determines one profile: camera, ROI, YOLO weights +
+    class taxonomy, PatchCore model, output dirs. Label is the path relative
+    to configs/ with the trailing /live_config.yaml stripped, e.g. "640C",
+    "CT11/Front", "CT11/Back".
     """
-    pattern = os.path.join(str(ROOT), "results", "**", "patchcore_params.pkl")
-    ir_module_root = os.path.join(str(ROOT), "results", "IR_Module")
+    pattern = os.path.join(str(ROOT), "configs", "**", "live_config.yaml")
+    configs_root = os.path.join(str(ROOT), "configs")
     found = []
-    for params_path in sorted(glob.glob(pattern, recursive=True)):
-        model_dir = os.path.dirname(params_path)
-        rel_path = os.path.relpath(model_dir, str(ROOT)).replace("\\", "/")
-        variant_dir = os.path.dirname(os.path.dirname(model_dir))
-        label = os.path.relpath(variant_dir, ir_module_root).replace("\\", "/")
-        found.append({"path": rel_path, "label": label})
+    for path in sorted(glob.glob(pattern, recursive=True)):
+        rel_path = os.path.relpath(path, str(ROOT)).replace("\\", "/")
+        label = os.path.dirname(os.path.relpath(path, configs_root)).replace("\\", "/")
+        try:
+            cfg = load_config(path)
+        except Exception:
+            continue
+        found.append({
+            "config_path": rel_path,
+            "label": label,
+            "suppress_dilation": cfg.get("yolo", {}).get("suppress_dilation", 0),
+            "score_threshold": cfg.get("inference", {}).get("score_threshold"),
+        })
     return found
 
 
@@ -118,6 +125,16 @@ def get_patchcore(model_path: str):
     pc.eval()
     cache[model_path] = pc
     return pc
+
+
+def get_yolo(weights_path: str):
+    """Load (or reuse a cached) YOLO instance for weights_path."""
+    cache = STATE["yolo_cache"]
+    if weights_path in cache:
+        return cache[weights_path]
+    model = YOLO(weights_path)
+    cache[weights_path] = model
+    return model
 
 
 def downsample_heatmap(raw_heatmap: np.ndarray, max_dim: int = GRID_MAX) -> np.ndarray:
@@ -159,17 +176,17 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/models")
-def api_models():
-    return jsonify({"models": discover_models()})
+@app.route("/api/profiles")
+def api_profiles():
+    return jsonify({"profiles": discover_profiles()})
 
 
 @app.route("/api/settings", methods=["POST"])
 def api_settings():
     data = request.get_json(force=True)
-    model_path = data.get("model_path")
-    if not model_path:
-        return jsonify({"error": "model_path is required"}), 400
+    config_path = data.get("config_path")
+    if not config_path:
+        return jsonify({"error": "config_path is required"}), 400
 
     suppress_dilation = int(data.get("suppress_dilation", 0) or 0)
     score_threshold_raw = data.get("score_threshold")
@@ -177,18 +194,32 @@ def api_settings():
         float(score_threshold_raw) if score_threshold_raw not in (None, "") else None
     )
 
+    try:
+        cfg = load_config(config_path)
+        model_path = cfg["output"]["patchcore_model"]
+        yolo_weights = cfg["yolo"]["weights"]
+    except Exception as e:
+        return jsonify({"error": f"Failed to read config: {e}"}), 400
+
+    device_str = STATE["device_override"] or cfg["inference"].get("device", "cuda")
+    STATE["device"] = torch.device(device_str)
+
     t0 = time.time()
     try:
         get_patchcore(model_path)
+        get_yolo(yolo_weights)
     except Exception as e:
         return jsonify({"error": f"Failed to load model: {e}"}), 400
     load_time = time.time() - t0
 
+    STATE["cfg"] = cfg
+    STATE["active_config_path"] = config_path
     STATE["active_model_path"] = model_path
     STATE["suppress_dilation"] = suppress_dilation
     STATE["score_threshold"] = score_threshold
 
     return jsonify({
+        "config_path": config_path,
         "model_path": model_path,
         "suppress_dilation": suppress_dilation,
         "score_threshold": score_threshold,
@@ -198,6 +229,8 @@ def api_settings():
 
 @app.route("/api/capture", methods=["POST"])
 def api_capture():
+    if STATE["cfg"] is None:
+        return jsonify({"error": "No profile selected — visit settings first"}), 400
     cam = STATE["cfg"]["camera"]
     try:
         raw_bgr = capture_snapshot(
@@ -271,9 +304,10 @@ def api_infer():
     timings["preprocess"] = round(time.time() - t0, 2)
 
     cfg_yolo = cfg.get("yolo", {})
+    yolo_model = get_yolo(cfg_yolo["weights"])
     t0 = time.time()
     suppression, issues, detected_counts, yolo_bgr = _run_yolo(
-        STATE["yolo_model"], pcb_bgr, cfg_yolo
+        yolo_model, pcb_bgr, cfg_yolo
     )
     timings["yolo"] = round(time.time() - t0, 2)
 
@@ -354,27 +388,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="Local web UI for YOLO + PatchCore live inference."
     )
-    parser.add_argument("--config", default="configs/640C/live_config.yaml",
-                        help="Path to YAML config (default: configs/640C/live_config.yaml)")
     parser.add_argument("--device", default=None,
-                        help="Override inference device: 'cuda', 'mps', or 'cpu'")
+                        help="Override inference device for every profile: 'cuda', 'mps', or 'cpu'")
     parser.add_argument("--port", type=int, default=5000)
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    STATE["cfg"] = cfg
-
-    device_str = args.device or cfg["inference"].get("device", "cuda")
-    STATE["device"] = torch.device(device_str)
-
-    cfg_yolo = cfg.get("yolo", {})
-    yolo_path = cfg_yolo.get("weights", str(ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"))
-    print(f"Loading YOLO from: {yolo_path}", flush=True)
-    STATE["yolo_model"] = YOLO(yolo_path)
-    print("YOLO ready.", flush=True)
-
-    STATE["suppress_dilation"] = cfg_yolo.get("suppress_dilation", 0)
-    STATE["score_threshold"] = cfg["inference"].get("score_threshold")
+    # No profile is loaded at startup -- the Settings screen's "Start"/"Save"
+    # loads whichever profile (640C, CT11/Front, CT11/Back, ...) is selected.
+    STATE["device_override"] = args.device
 
     app.run(host="127.0.0.1", port=args.port, debug=False, threaded=False)
 

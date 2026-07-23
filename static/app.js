@@ -42,25 +42,44 @@ function setStatus(el, text, isError = false) {
 // Settings screen
 // ---------------------------------------------------------------------------
 
+let profiles = [];  // cached /api/profiles response, for label lookups + per-profile defaults
+
 async function loadModels() {
-  const res = await fetch("/api/models");
+  const res = await fetch("/api/profiles");
   const data = await res.json();
+  profiles = data.profiles;
   const select = document.getElementById("model-select");
   select.innerHTML = "";
-  for (const m of data.models) {
+  for (const p of profiles) {
     const opt = document.createElement("option");
-    opt.value = m.path;
-    opt.textContent = m.label;
+    opt.value = p.config_path;
+    opt.textContent = p.label;
     select.appendChild(opt);
   }
+  applyProfileDefaults();
 }
+
+// Switching modules should switch everything about them, including the
+// dilation/NG-threshold starting point -- otherwise picking CT11 while the
+// form still shows 640C's leftover values silently applies the wrong
+// threshold (each profile's own values were calibrated separately).
+function applyProfileDefaults() {
+  const configPath = document.getElementById("model-select").value;
+  const p = profiles.find((p) => p.config_path === configPath);
+  if (!p) return;
+  document.getElementById("dilation-input").value = p.suppress_dilation;
+  document.getElementById("threshold-input").value =
+    p.score_threshold === null ? "" : p.score_threshold;
+}
+
+document.getElementById("model-select").addEventListener("change", applyProfileDefaults);
 
 document.getElementById("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const statusEl = document.getElementById("settings-status");
   setStatus(statusEl, "Loading model...");
 
-  const model_path = document.getElementById("model-select").value;
+  const config_path = document.getElementById("model-select").value;
   const suppress_dilation = parseInt(document.getElementById("dilation-input").value || "0", 10);
   const thresholdRaw = document.getElementById("threshold-input").value;
   const score_threshold = thresholdRaw === "" ? null : parseFloat(thresholdRaw);
@@ -68,7 +87,7 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
   const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model_path, suppress_dilation, score_threshold }),
+    body: JSON.stringify({ config_path, suppress_dilation, score_threshold }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -92,15 +111,16 @@ document.getElementById("settings-cancel-btn").addEventListener("click", () => {
 function updateActiveSettingsLabel() {
   const s = state.activeSettings;
   if (!s) return;
+  const p = profiles.find((p) => p.config_path === s.config_path);
   const thr = s.score_threshold === null ? "none" : s.score_threshold;
   document.getElementById("active-settings").textContent =
-    `Model: ${s.model_path}  |  Dilation: ${s.suppress_dilation}px  |  NG threshold: ${thr}`;
+    `Module: ${p ? p.label : s.config_path}  |  Dilation: ${s.suppress_dilation}px  |  NG threshold: ${thr}`;
 }
 
 function populateSettingsForm() {
   const s = state.activeSettings;
   if (!s) return;
-  document.getElementById("model-select").value = s.model_path;
+  document.getElementById("model-select").value = s.config_path;
   document.getElementById("dilation-input").value = s.suppress_dilation;
   document.getElementById("threshold-input").value =
     s.score_threshold === null ? "" : s.score_threshold;
