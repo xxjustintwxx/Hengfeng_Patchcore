@@ -1,0 +1,4 @@
+# CT11 Back side
+preprocessing:
+  roi: [700, 1600, 900, 900]
+  output_size: [1024, 1024]

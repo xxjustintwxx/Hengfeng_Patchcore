@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=pcb_m4_512
+#SBATCH --job-name=pcb_m3
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -40,40 +40,36 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-M4_512="results/IR_Module/ir_module_WR50_L2-3_PS3_512_m4_p0.1/models/mvtec_ir_module"
+M3="results/IR_Module/ir_module_WR50_L2-3_PS3_1024_colorjitter_p0.1/models/mvtec_ir_module"
 
-echo "=== Model4 512: good (ws + ns boards) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_512/ir_module/test/good \
-  --patchcore_path "$M4_512" \
-  --resize 512 --cropsize 512 \
+echo "=== Model3 (colorjitter, no rotation, p=0.1): defect (defect-01 to 13) ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_1024/ir_module/test/defect \
+  --patchcore_path "$M3" \
   --save
 
 echo ""
-echo "=== Model4 512: defect (defect-01 to 13) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_512/ir_module/test/defect \
-  --patchcore_path "$M4_512" \
-  --resize 512 --cropsize 512 \
+echo "=== Model3: good ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_1024/ir_module/test/good \
+  --patchcore_path "$M3" \
   --save
 
 echo ""
-echo "=== Model4 512: defect_type1 — 10px dilation for background screws ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_512/ir_module/test/defect_type1 \
-  --patchcore_path "$M4_512" \
-  --resize 512 --cropsize 512 \
-  --suppress_dilation 10 \
+echo "=== Model3: defect_type1 (defect-14 to 18) — 20px screw dilation for background screws ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_1024/ir_module/test/defect_type1 \
+  --patchcore_path "$M3" \
+  --suppress_dilation 20 \
   --save
 
 echo ""
-echo "=== Model4 512: defect_type2 — 10px dilation for background screws ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_512/ir_module/test/defect_type2 \
-  --patchcore_path "$M4_512" \
-  --resize 512 --cropsize 512 \
-  --suppress_dilation 10 \
+echo "=== Model3: defect_type2 (defect-19 to 26) — 20px screw dilation for background screws ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_1024/ir_module/test/defect_type2 \
+  --patchcore_path "$M3" \
+  --suppress_dilation 20 \
   --save
 
 echo ""
-echo "=== Done. Results at results/yolo/pcb_inspection/ir_module_WR50_L2-3_PS3_512_m4_p0.1/ ==="
+echo "=== Done. Results at results/yolo/pcb_inspection/ir_module_WR50_L2-3_PS3_1024_colorjitter_p0.1/ ==="

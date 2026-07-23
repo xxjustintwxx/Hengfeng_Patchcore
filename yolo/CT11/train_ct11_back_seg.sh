@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=pcb_m4
+#SBATCH --job-name=ct11_back_yolo
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -27,7 +27,8 @@ export OPENBLAS_NUM_THREADS=1
 export OMP_NUM_THREADS=1
 
 __conda_setup="$('/home/xxjustin77xx/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then eval "$__conda_setup"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
 else
     if [ -f "/home/xxjustin77xx/miniconda3/etc/profile.d/conda.sh" ]; then
         . "/home/xxjustin77xx/miniconda3/etc/profile.d/conda.sh"
@@ -36,40 +37,16 @@ else
     fi
 fi
 unset __conda_setup
+
 conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-M4="results/IR_Module/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
-
-echo "=== Model4: good (ws + ns boards) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/good \
-  --patchcore_path "$M4" \
-  --save
-
+echo "=== YOLOv11-seg CT11 Back Training (medium model) ==="
+echo "Classes : component(1), connecter(1), resistor(61)"
+echo "Node    : $(hostname)"
+echo "GPU     : $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo "Python  : $(which python)"
 echo ""
-echo "=== Model4: defect (defect-01 to 13, ws+ns) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect \
-  --patchcore_path "$M4" \
-  --save
 
-echo ""
-echo "=== Model4: defect_type1 — 20px dilation for background screws ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect_type1 \
-  --patchcore_path "$M4" \
-  --suppress_dilation 20 \
-  --save
-
-echo ""
-echo "=== Model4: defect_type2 — 20px dilation for background screws ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect_type2 \
-  --patchcore_path "$M4" \
-  --suppress_dilation 20 \
-  --save
-
-echo ""
-echo "=== Done. Results at results/yolo/pcb_inspection/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/ ==="
+python yolo/CT11/train_ct11_back_seg.py

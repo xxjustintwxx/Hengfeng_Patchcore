@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=pcb_type1
+#SBATCH --job-name=ct11_back_infer
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-01:00:00
 #SBATCH --output=/work/xxjustin77xx/results/job_log/job-%j.out
 #SBATCH --error=/work/xxjustin77xx/results/job_log/job-%j.err
 #SBATCH --mail-type=END,FAIL
@@ -40,11 +40,10 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-echo "=== PCB Inspection: defect_type1 (defect-14 to defect-18) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect_type1 \
-  --suppress_dilation 20 \
+echo "=== CT11 Back Inspection: test/good ==="
+python yolo/CT11/infer_ct11_back.py \
+  --image_dir data/CT11/Back/ir_module_1024/ir_module/test/good \
   --save
 
 echo ""
-echo "=== Done. Results at results/yolo/pcb_inspection/ ==="
+echo "=== Done. Heatmaps at results/heatmaps/CT11/Back/ ==="

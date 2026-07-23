@@ -18,7 +18,7 @@ from pathlib import Path
 from ultralytics import YOLO
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-ROOT        = Path(__file__).resolve().parent.parent          # Hengfeng_Patchcore/
+ROOT        = Path(__file__).resolve().parent.parent.parent  # Hengfeng_Patchcore/
 DATA_YAML   = ROOT / "data" / "PCB labeling" / "data.yaml"
 PRETRAINED  = ROOT / "models" / "yolo" / "yolo11s-seg.pt"
 WEIGHTS_DIR = ROOT / "models" / "yolo" / "pcb_seg" / "weights"

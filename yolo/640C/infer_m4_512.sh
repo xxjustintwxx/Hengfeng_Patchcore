@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=pcb_infer
+#SBATCH --job-name=pcb_m4_512
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -40,16 +40,40 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-echo "=== PCB Inspection: defect (no aug) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect \
+M4_512="results/IR_Module/ir_module_WR50_L2-3_PS3_512_m4_p0.1/models/mvtec_ir_module"
+
+echo "=== Model4 512: good (ws + ns boards) ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_512/ir_module/test/good \
+  --patchcore_path "$M4_512" \
+  --resize 512 --cropsize 512 \
   --save
 
 echo ""
-echo "=== PCB Inspection: good (no aug) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/good \
+echo "=== Model4 512: defect (defect-01 to 13) ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_512/ir_module/test/defect \
+  --patchcore_path "$M4_512" \
+  --resize 512 --cropsize 512 \
   --save
 
 echo ""
-echo "=== Done. Results at results/yolo/pcb_inspection/ ==="
+echo "=== Model4 512: defect_type1 — 10px dilation for background screws ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_512/ir_module/test/defect_type1 \
+  --patchcore_path "$M4_512" \
+  --resize 512 --cropsize 512 \
+  --suppress_dilation 10 \
+  --save
+
+echo ""
+echo "=== Model4 512: defect_type2 — 10px dilation for background screws ==="
+python yolo/640C/infer_pcb.py \
+  --image_dir data/ir_module_512/ir_module/test/defect_type2 \
+  --patchcore_path "$M4_512" \
+  --resize 512 --cropsize 512 \
+  --suppress_dilation 10 \
+  --save
+
+echo ""
+echo "=== Done. Results at results/yolo/pcb_inspection/ir_module_WR50_L2-3_PS3_512_m4_p0.1/ ==="

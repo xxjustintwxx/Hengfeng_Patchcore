@@ -33,7 +33,7 @@ import torch
 from torchvision import transforms
 from ultralytics import YOLO
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import patchcore.common

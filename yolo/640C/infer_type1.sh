@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=pcb_m2
+#SBATCH --job-name=pcb_type1
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -40,36 +40,11 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-M2="results/IR_Module/ir_module_WR50_L2-3_PS3_1024/models/mvtec_ir_module"
-
-echo "=== Model2 (no aug, p=1.0): defect (defect-01 to 13) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect \
-  --patchcore_path "$M2" \
-  --save
-
-echo ""
-echo "=== Model2 (no aug, p=1.0): good ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/good \
-  --patchcore_path "$M2" \
-  --save
-
-echo ""
-echo "=== Model2 (no aug, p=1.0): defect_type1 (defect-14 to 18) ==="
-python yolo/infer_pcb.py \
+echo "=== PCB Inspection: defect_type1 (defect-14 to defect-18) ==="
+python yolo/640C/infer_pcb.py \
   --image_dir data/ir_module_1024/ir_module/test/defect_type1 \
-  --patchcore_path "$M2" \
   --suppress_dilation 20 \
   --save
 
 echo ""
-echo "=== Model2 (no aug, p=1.0): defect_type2 (defect-19 to 26) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect_type2 \
-  --patchcore_path "$M2" \
-  --suppress_dilation 20 \
-  --save
-
-echo ""
-echo "=== Done. Results at results/yolo/pcb_inspection/ir_module_WR50_L2-3_PS3_1024/ ==="
+echo "=== Done. Results at results/yolo/pcb_inspection/ ==="

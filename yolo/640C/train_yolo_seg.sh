@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=pcb_type2
+#SBATCH --job-name=yolo_pcb_seg
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -12,10 +12,12 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=justin135246j@gmail.com
 
+# Load modules
 module purge
 module load cuda/12.4
 module load gcc/11.5.0
 
+# Environment
 export CUDA_HOME=/work/HPC_software/LMOD/nvidia/packages/cuda-12.4
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
@@ -26,8 +28,10 @@ export TMP=/work/xxjustin77xx/tmp
 export OPENBLAS_NUM_THREADS=1
 export OMP_NUM_THREADS=1
 
+# Conda
 __conda_setup="$('/home/xxjustin77xx/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then eval "$__conda_setup"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
 else
     if [ -f "/home/xxjustin77xx/miniconda3/etc/profile.d/conda.sh" ]; then
         . "/home/xxjustin77xx/miniconda3/etc/profile.d/conda.sh"
@@ -36,15 +40,15 @@ else
     fi
 fi
 unset __conda_setup
+
 conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-echo "=== PCB Inspection: defect_type2 (defect-19 to defect-26) ==="
-python yolo/infer_pcb.py \
-  --image_dir data/ir_module_1024/ir_module/test/defect_type2 \
-  --suppress_dilation 20 \
-  --save
-
+echo "=== YOLOv11-seg PCB Training ==="
+echo "Node     : $(hostname)"
+echo "GPU      : $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo "Python   : $(which python)"
 echo ""
-echo "=== Done. Results at results/yolo/pcb_inspection/ ==="
+
+python yolo/640C/train_yolo_seg.py
