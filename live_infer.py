@@ -184,7 +184,6 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     Returns (suppression, issues, detected_counts, yolo_bgr).
     """
     H, W    = pcb_bgr.shape[:2]
-    pil_img = PIL.Image.fromarray(cv2.cvtColor(pcb_bgr, cv2.COLOR_BGR2RGB))
 
     yolo_conf  = cfg_yolo.get("conf", 0.25)
     yolo_iou   = cfg_yolo.get("nms_iou", 0.20)
@@ -202,10 +201,31 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     suppress_classes = set(cfg_yolo.get("suppress_classes", SUPPRESS_CLASSES))
     class_nms_iou    = {int(k): v for k, v in cfg_yolo.get("class_nms_iou", CLASS_NMS_IOU).items()}
 
+    # Board-outline masking (CT11): YOLO segments the PCB's own outline, and
+    # everything OUTSIDE it gets suppressed from the PatchCore heatmap (the
+    # opposite of suppress_classes, which suppresses INSIDE a mask). The
+    # models were retrained on gray-bordered images to fix boundary-prediction
+    # underfit, so we pad the same way here before running YOLO.
+    board_class_name = cfg_yolo.get("board_class")
+    board_class_id    = class_names.index(board_class_name) if board_class_name in class_names else None
+    board_dilation    = cfg_yolo.get("board_dilation", 20)
+    board_pad         = cfg_yolo.get("board_pad", 128) if board_class_id is not None else 0
+
+    if board_pad > 0:
+        padded_bgr = cv2.copyMakeBorder(pcb_bgr, board_pad, board_pad, board_pad, board_pad,
+                                        cv2.BORDER_CONSTANT, value=(114, 114, 114))
+        pil_img    = PIL.Image.fromarray(cv2.cvtColor(padded_bgr, cv2.COLOR_BGR2RGB))
+        run_imgsz  = W + 2 * board_pad
+    else:
+        pil_img   = PIL.Image.fromarray(cv2.cvtColor(pcb_bgr, cv2.COLOR_BGR2RGB))
+        run_imgsz = yolo_imgsz
+
     yolo_res     = yolo_model(pil_img, conf=yolo_conf, iou=yolo_iou,
-                              imgsz=yolo_imgsz, verbose=False)[0]
+                              imgsz=run_imgsz, verbose=False)[0]
     count_by_cls = {i: 0 for i in range(len(class_names))}
     suppression  = np.zeros((H, W), dtype=bool)
+    board_mask   = np.zeros((H, W), dtype=bool)
+    board_found  = False
 
     nms_keep = np.ones(0, dtype=bool)
     if yolo_res.boxes is not None:
@@ -226,15 +246,44 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         masks_data = yolo_res.masks.data.cpu().numpy()
         cls_ids    = yolo_res.boxes.cls.cpu().numpy().astype(int)
         confs      = yolo_res.boxes.conf.cpu().numpy()
+        mh, mw     = masks_data.shape[1:3]
+        # Mask resolution matches run_imgsz (the padded input's pixel size, when
+        # padded) -- crop the pad back off proportionally so this holds even if
+        # YOLO rounds imgsz to a stride multiple, then resize to PatchCore's (W, H).
+        pad_frac_h = board_pad / (H + 2 * board_pad) if board_pad > 0 else 0
+        pad_frac_w = board_pad / (W + 2 * board_pad) if board_pad > 0 else 0
+        crop_y0, crop_y1 = int(round(mh * pad_frac_h)), mh - int(round(mh * pad_frac_h))
+        crop_x0, crop_x1 = int(round(mw * pad_frac_w)), mw - int(round(mw * pad_frac_w))
         for mask_raw, cls_id, conf, keep in zip(masks_data, cls_ids, confs, nms_keep):
             if not keep:
                 continue
             if conf < class_conf.get(cls_id, yolo_conf):
                 continue
-            if cls_id in suppress_classes:
+            mask_crop = mask_raw[crop_y0:crop_y1, crop_x0:crop_x1] if board_pad > 0 else mask_raw
+            if board_class_id is not None and cls_id == board_class_id:
+                m = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST)
+                board_mask |= m > 0.5
+                board_found = True
+            elif cls_id in suppress_classes:
                 # Resize YOLO's internal mask to PatchCore resolution
-                m = cv2.resize(mask_raw, (W, H), interpolation=cv2.INTER_NEAREST)
+                m = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST)
                 suppression |= m > 0.5
+
+    if board_class_id is not None and board_found:
+        # Fill internal holes (board polygon around raised components leaves
+        # gaps) before dilating, so components don't create false suppressed
+        # islands inside the board.
+        contours, _ = cv2.findContours(board_mask.astype(np.uint8),
+                                       cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            solid = np.zeros_like(board_mask, dtype=np.uint8)
+            cv2.drawContours(solid, contours, -1, 1, cv2.FILLED)
+            board_mask = solid.astype(bool)
+        if board_dilation > 0:
+            r      = board_dilation
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*r+1, 2*r+1))
+            board_mask = cv2.dilate(board_mask.astype(np.uint8), kernel).astype(bool)
+        suppression |= ~board_mask
 
     issues = []
     for cls_id, exp in expected.items():
@@ -243,8 +292,13 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
             tag = "missing" if got < exp else "extra"
             issues.append(f"{class_names[cls_id]} ({got}/{exp} {tag})")
 
-    yolo_bgr        = _draw_yolo_overlay(pcb_bgr, yolo_res, class_conf, nms_keep,
-                                        class_names, class_colors, label_classes)
+    # Draw on the same image YOLO actually saw (coordinates line up), then crop
+    # the gray padding back off before returning.
+    overlay_src = padded_bgr if board_pad > 0 else pcb_bgr
+    yolo_bgr    = _draw_yolo_overlay(overlay_src, yolo_res, class_conf, nms_keep,
+                                     class_names, class_colors, label_classes)
+    if board_pad > 0:
+        yolo_bgr = yolo_bgr[board_pad:board_pad + H, board_pad:board_pad + W]
     detected_counts = {class_names[i]: count_by_cls[i] for i in range(len(class_names))}
 
     return suppression, issues, detected_counts, yolo_bgr
@@ -260,8 +314,9 @@ def _to_colormap(anom_map, lo=None, hi=None):
     lo    = float(np.percentile(valid, 1))  if lo is None else lo
     hi    = float(np.percentile(valid, 99)) if hi is None else hi
     scaled = np.clip((m - lo) / (hi - lo + 1e-8), 0, 1)
-    scaled[m < 0] = 0   # suppressed pixels → blue end of JET colormap
-    return cv2.applyColorMap((scaled * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    cm = cv2.applyColorMap((scaled * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    cm[m < 0] = (0, 0, 0)   # suppressed pixels → black (distinct from low-score dark blue)
+    return cm
 
 
 def _make_colorbar(height, width=20):

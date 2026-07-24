@@ -68,6 +68,7 @@ function applyProfileDefaults() {
   const p = profiles.find((p) => p.config_path === configPath);
   if (!p) return;
   document.getElementById("dilation-input").value = p.suppress_dilation;
+  document.getElementById("board-dilation-input").value = p.board_dilation;
   document.getElementById("threshold-input").value =
     p.score_threshold === null ? "" : p.score_threshold;
 }
@@ -81,13 +82,14 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
 
   const config_path = document.getElementById("model-select").value;
   const suppress_dilation = parseInt(document.getElementById("dilation-input").value || "0", 10);
+  const board_dilation = parseInt(document.getElementById("board-dilation-input").value || "0", 10);
   const thresholdRaw = document.getElementById("threshold-input").value;
   const score_threshold = thresholdRaw === "" ? null : parseFloat(thresholdRaw);
 
   const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ config_path, suppress_dilation, score_threshold }),
+    body: JSON.stringify({ config_path, suppress_dilation, board_dilation, score_threshold }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -114,7 +116,8 @@ function updateActiveSettingsLabel() {
   const p = profiles.find((p) => p.config_path === s.config_path);
   const thr = s.score_threshold === null ? "none" : s.score_threshold;
   document.getElementById("active-settings").textContent =
-    `Module: ${p ? p.label : s.config_path}  |  Dilation: ${s.suppress_dilation}px  |  NG threshold: ${thr}`;
+    `Module: ${p ? p.label : s.config_path}  |  Screw dilation: ${s.suppress_dilation}px  |  ` +
+    `Board dilation: ${s.board_dilation}px  |  NG threshold: ${thr}`;
 }
 
 function populateSettingsForm() {
@@ -122,6 +125,7 @@ function populateSettingsForm() {
   if (!s) return;
   document.getElementById("model-select").value = s.config_path;
   document.getElementById("dilation-input").value = s.suppress_dilation;
+  document.getElementById("board-dilation-input").value = s.board_dilation;
   document.getElementById("threshold-input").value =
     s.score_threshold === null ? "" : s.score_threshold;
 }
@@ -163,20 +167,34 @@ document.getElementById("capture-btn").addEventListener("click", async () => {
   document.getElementById("roi-preview-img").src = data.preview_image;
   document.getElementById("roi-preview-wrap").hidden = false;
   document.getElementById("capture-btn").hidden = true;
+  document.getElementById("capture-cancel-btn").hidden = true;
   setStatus(statusEl, "Captured. Confirm the ROI box looks right before running inference.");
 });
 
 document.getElementById("retake-btn").addEventListener("click", () => {
   document.getElementById("roi-preview-wrap").hidden = true;
   document.getElementById("capture-btn").hidden = false;
+  document.getElementById("capture-cancel-btn").hidden = false;
   setStatus(document.getElementById("capture-status"), "");
   state.captureId = null;
+});
+
+document.getElementById("capture-cancel-btn").addEventListener("click", () => {
+  document.getElementById("roi-preview-wrap").hidden = true;
+  document.getElementById("capture-btn").hidden = false;
+  document.getElementById("capture-cancel-btn").hidden = false;
+  setStatus(document.getElementById("capture-status"), "");
+  state.captureId = null;
+  // Back to whatever result you already had, or Setup if nothing's been
+  // inferred yet this session.
+  showScreen(state.lastResult ? "result" : "settings");
 });
 
 function showCaptureControls() {
   document.getElementById("capture-controls").hidden = false;
   document.getElementById("inference-progress").hidden = true;
   document.getElementById("capture-btn").hidden = false;
+  document.getElementById("capture-cancel-btn").hidden = false;
 }
 
 function showInferenceProgress() {

@@ -73,6 +73,7 @@ STATE = {
     "active_model_path": None,
     "active_config_path": None,
     "suppress_dilation": 0,
+    "board_dilation": 20,
     "score_threshold": None,
     "pending_captures": {},  # capture_id -> raw_bgr
 }
@@ -109,6 +110,8 @@ def discover_profiles():
             "config_path": rel_path,
             "label": label,
             "suppress_dilation": cfg.get("yolo", {}).get("suppress_dilation", 0),
+            "board_dilation": cfg.get("yolo", {}).get("board_dilation", 20)
+                              if cfg.get("yolo", {}).get("board_class") else 0,
             "score_threshold": cfg.get("inference", {}).get("score_threshold"),
         })
     return found
@@ -189,6 +192,7 @@ def api_settings():
         return jsonify({"error": "config_path is required"}), 400
 
     suppress_dilation = int(data.get("suppress_dilation", 0) or 0)
+    board_dilation = int(data.get("board_dilation", 0) or 0)
     score_threshold_raw = data.get("score_threshold")
     score_threshold = (
         float(score_threshold_raw) if score_threshold_raw not in (None, "") else None
@@ -216,12 +220,14 @@ def api_settings():
     STATE["active_config_path"] = config_path
     STATE["active_model_path"] = model_path
     STATE["suppress_dilation"] = suppress_dilation
+    STATE["board_dilation"] = board_dilation
     STATE["score_threshold"] = score_threshold
 
     return jsonify({
         "config_path": config_path,
         "model_path": model_path,
         "suppress_dilation": suppress_dilation,
+        "board_dilation": board_dilation,
         "score_threshold": score_threshold,
         "load_time": round(load_time, 2),
     })
@@ -303,7 +309,11 @@ def api_infer():
     pcb_bgr = crop_and_resize(raw_bgr, roi, output_size)
     timings["preprocess"] = round(time.time() - t0, 2)
 
-    cfg_yolo = cfg.get("yolo", {})
+    # board_dilation applies INSIDE _run_yolo (unlike suppress_dilation, which
+    # applies externally to the already-combined mask below), so the live
+    # Settings override has to be injected into the cfg before that call.
+    cfg_yolo = dict(cfg.get("yolo", {}))
+    cfg_yolo["board_dilation"] = STATE["board_dilation"]
     yolo_model = get_yolo(cfg_yolo["weights"])
     t0 = time.time()
     suppression, issues, detected_counts, yolo_bgr = _run_yolo(

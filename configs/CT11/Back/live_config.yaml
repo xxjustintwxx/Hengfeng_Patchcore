@@ -22,28 +22,33 @@ yolo:
   conf: 0.25             # global confidence floor
   nms_iou: 0.20          # global NMS IoU threshold (lower = stricter deduplication)
   imgsz: 1280            # YOLO inference resolution
-  # Classes (3): 0=component  1=connecter  2=resistor -- no "Main IC" or "screw" for CT11 Back
-  class_names: ["component", "connecter", "resistor"]
+  # Classes (4): 0=board  1=component  2=connecter  3=resistor -- no "Main IC" or "screw" for CT11 Back
+  class_names: ["board", "component", "connecter", "resistor"]
   class_colors:          # BGR
-    0: [50, 180, 255]    # component — light blue
-    1: [0, 200, 0]       # connecter — green
-    2: [0, 200, 200]     # resistor  — yellow
-  label_classes: [0, 1]  # skip resistor labels (61 is too many)
+    0: [150, 150, 150]   # board     — gray (structural outline)
+    1: [50, 180, 255]    # component — light blue
+    2: [0, 200, 0]       # connecter — green
+    3: [0, 200, 200]     # resistor  — yellow
+  label_classes: [1, 2]  # skip board (structural) and resistor labels (61 is too many)
   class_conf:            # per-class confidence override (must be >= conf)
-    0: 0.25              # component
-    1: 0.25              # connecter
+    0: 0.50              # board
+    1: 0.25              # component
+    2: 0.25              # connecter
     # resistor — raised from 0.40 after a confirmed false positive at 0.7374
     # (real resistors on this board ranged 0.82-0.91, so 0.78 sits with margin
     # on both sides; watch for either missed real resistors or new false
     # positives near this line as more captures come in and adjust further)
-    2: 0.78
+    3: 0.70
   expected_counts:       # exact component count check — NG if any mismatch
-    0: 1                 # component
-    1: 1                 # connecter
-    2: 61                # resistor
+    1: 1                 # component
+    2: 1                 # connecter
+    3: 61                # resistor
   suppress_classes: []   # no PatchCore-heatmap suppression for CT11 Back
   class_nms_iou: {}      # no per-class post-NMS overrides for CT11 Back
   suppress_dilation: 0
+  board_class: "board"   # class name whose segmented outline masks the heatmap
+  board_dilation: 20     # expand board mask outward by this many px before masking
+  board_pad: 128         # gray-border pad before YOLO (models trained on padded images)
 
 inference:
   device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"

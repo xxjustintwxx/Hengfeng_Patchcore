@@ -54,6 +54,11 @@
           <input type="number" id="dilation-input" min="0" step="1" value="0">
         </label>
         <label>
+          Board mask dilation (px)
+          <span class="hint">Expands the board outline outward before everything outside it is excluded from the anomaly score</span>
+          <input type="number" id="board-dilation-input" min="0" step="1" value="0">
+        </label>
+        <label>
           NG threshold
           <span class="hint">Anomaly score at or above this value fails the board</span>
           <input type="number" id="threshold-input" step="any" value="200">
@@ -71,14 +76,17 @@
       <div id="capture-controls">
         <h2>Capture</h2>
         <p id="active-settings" class="status mono"></p>
-        <button id="capture-btn" class="btn-primary btn-large">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-            <circle cx="12" cy="13" r="4"></circle>
-          </svg>
-          <span>Capture</span>
-        </button>
+        <div class="btn-row">
+          <button id="capture-btn" class="btn-primary btn-large">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+            <span>Capture</span>
+          </button>
+          <button id="capture-cancel-btn" class="btn-ghost">Cancel</button>
+        </div>
         <p id="capture-status" class="status"></p>
 
         <div id="roi-preview-wrap" hidden>
