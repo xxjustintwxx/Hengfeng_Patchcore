@@ -1,10 +1,11 @@
 """
 YOLOv11-seg training script for CT11 Back PCB component segmentation.
 
-Classes (3):
-  0: component  — expected count: 1
-  1: connecter  — expected count: 1
-  2: resistor   — expected count: 61
+Classes (4):
+  0: board      — full PCB outline (used for PatchCore heatmap masking)
+  1: component  — expected count: 1
+  2: connecter  — expected count: 1
+  3: resistor   — expected count: 61
 
 Trained weights land at:  models/yolo/CT11/Back/pcb_seg/weights/best.pt
 Training logs land at:    results/yolo/CT11/Back/
@@ -16,7 +17,7 @@ from ultralytics import YOLO
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 ROOT        = Path(__file__).resolve().parent.parent.parent
-DATA_YAML   = ROOT / "data" / "CT11" / "Back" / "CT11 back" / "data.yaml"
+DATA_YAML   = ROOT / "data" / "CT11" / "Back" / "CT11 back_padded" / "data.yaml"
 PRETRAINED  = ROOT / "models" / "yolo" / "yolo11s-seg.pt"
 WEIGHTS_DIR = ROOT / "models" / "yolo" / "CT11" / "Back" / "pcb_seg" / "weights"
 RESULTS_DIR = ROOT / "results" / "yolo" / "CT11" / "Back"
@@ -56,7 +57,7 @@ model.train(
 
     # ── Augmentation — toned down for dense small objects (61 resistors) ─────────
     degrees   = 10.0,
-    translate = 0.1,
+    translate = 0.03,   # reduced from 0.1 — board bottom near image edge; large translate pushes it off-screen and degrades boundary prediction
     scale     = 0.2,
     shear     = 2.0,
     perspective = 0.0005,

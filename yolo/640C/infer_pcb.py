@@ -97,6 +97,13 @@ YOLO_CONF      = 0.25
 TOP_PCT        = 1          # top-N% anomaly highlight panel
 ANOMALY_THRESH = 190.0      # PatchCore score >= this → surface NG (override with --threshold)
 
+BOARD_CLASS_ID    = None    # class ID for PCB board outline; None = no board masking
+BOARD_DILATION_PX = 20      # expand detected board mask outward by this many px
+# Gray border added to image before YOLO so the PCB boundary is never at the image
+# edge — YOLO's boundary prediction degrades when the object fills the entire frame.
+# For 1024px images this pads to exactly 1280 (our imgsz), so no internal rescaling.
+BOARD_PAD_PX      = 0       # set to 128 in CT11 infer scripts when board masking is on
+
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -175,9 +182,18 @@ class PCBInspector:
         # Default 0.7 is too lenient for dense resistors — same-resistor duplicates
         # overlap ~50-60% and slip through. Adjacent resistors share only an edge
         # (IoU ~0.1-0.2) so they are not merged at this threshold.
-        yolo_res      = self.yolo(pil_img, conf=YOLO_CONF, iou=0.20, imgsz=1280, verbose=False)[0]
+        orig_w, orig_h = pil_img.size
+        pad = BOARD_PAD_PX if BOARD_CLASS_ID is not None and BOARD_PAD_PX > 0 else 0
+        if pad > 0:
+            yolo_input = PIL.Image.new("RGB", (orig_w + 2*pad, orig_h + 2*pad), (114, 114, 114))
+            yolo_input.paste(pil_img, (pad, pad))
+        else:
+            yolo_input = pil_img
+        yolo_res      = self.yolo(yolo_input, conf=YOLO_CONF, iou=0.20, imgsz=orig_w + 2*pad if pad else 1280, verbose=False)[0]
         count_by_cls  = {i: 0 for i in range(len(CLASS_NAMES))}
         suppression   = np.zeros((self.pc_crop, self.pc_crop), dtype=bool)
+        board_mask    = np.zeros((self.pc_crop, self.pc_crop), dtype=bool)
+        board_found   = False
 
         if yolo_res.boxes is not None:
             cls_ids   = yolo_res.boxes.cls.cpu().numpy().astype(int)
@@ -201,10 +217,15 @@ class PCBInspector:
                     continue
                 if conf < CLASS_CONF.get(cls_id, 0.25):
                     continue
-                if cls_id in SUPPRESS_CLASSES:
-                    m_pil = PIL.Image.fromarray(
-                        (mask_raw * 255).astype(np.uint8), mode="L"
-                    )
+                if BOARD_CLASS_ID is not None and cls_id == BOARD_CLASS_ID:
+                    mr = mask_raw[pad:pad+orig_h, pad:pad+orig_w] if pad else mask_raw
+                    m_pil = PIL.Image.fromarray((mr * 255).astype(np.uint8), mode="L")
+                    m = self._pc_mask_transform(m_pil)[0].numpy()
+                    board_mask |= m > 0.5
+                    board_found = True
+                elif cls_id in SUPPRESS_CLASSES:
+                    mr = mask_raw[pad:pad+orig_h, pad:pad+orig_w] if pad else mask_raw
+                    m_pil = PIL.Image.fromarray((mr * 255).astype(np.uint8), mode="L")
                     m = self._pc_mask_transform(m_pil)[0].numpy()
                     suppression |= m > 0.5
 
@@ -220,6 +241,30 @@ class PCBInspector:
         tensor = self._pc_img_transform(pil_img).unsqueeze(0)
         scores, masks = self.pc._predict(tensor)
         raw_heatmap   = np.array(masks[0], dtype=np.float32)
+
+        # Apply board masking: suppress everything outside the PCB outline
+        if BOARD_CLASS_ID is not None and board_found:
+            bm = board_mask
+            if bm.shape != raw_heatmap.shape:
+                bm = cv2.resize(
+                    bm.astype(np.uint8),
+                    (raw_heatmap.shape[1], raw_heatmap.shape[0]),
+                    interpolation=cv2.INTER_NEAREST,
+                ).astype(bool)
+            # Fill internal holes (board polygon drawn around raised components
+            # leaves gaps — fill the largest external contour as a solid region)
+            contours, _ = cv2.findContours(
+                bm.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            if contours:
+                solid = np.zeros_like(bm, dtype=np.uint8)
+                cv2.drawContours(solid, contours, -1, 1, cv2.FILLED)
+                bm = solid.astype(bool)
+            if BOARD_DILATION_PX > 0:
+                r = BOARD_DILATION_PX
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*r+1, 2*r+1))
+                bm = cv2.dilate(bm.astype(np.uint8), kernel).astype(bool)
+            raw_heatmap[~bm] = SUPPRESS_VALUE
 
         # Apply screw suppression — use sentinel (-1) not zero so colormap
         # scaling is computed from valid pixels only (fixes "all yellow" issue)
@@ -241,10 +286,13 @@ class PCBInspector:
         # Original image in BGR, cropped to same space PatchCore sees
         orig_bgr = _pil_to_bgr(pil_img, self.pc_resize, self.pc_crop)
 
-        # Custom YOLO overlay: masks + boxes for all classes,
-        # text labels only for LABEL_CLASSES (not resistors)
-        orig_full = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-        yolo_bgr  = _draw_yolo_overlay(orig_full, yolo_res)
+        # Custom YOLO overlay: draw on the same image YOLO saw, then crop padding off
+        if pad > 0:
+            yolo_input_bgr = cv2.cvtColor(np.array(yolo_input), cv2.COLOR_RGB2BGR)
+            yolo_bgr = _draw_yolo_overlay(yolo_input_bgr, yolo_res)[pad:pad+orig_h, pad:pad+orig_w]
+        else:
+            orig_full = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            yolo_bgr  = _draw_yolo_overlay(orig_full, yolo_res)
 
         detected_counts = {CLASS_NAMES[i]: count_by_cls[i] for i in range(len(CLASS_NAMES))}
 
@@ -335,8 +383,9 @@ def _to_colormap(anom_map, lo=None, hi=None):
     lo    = float(np.percentile(valid, 1))  if lo is None else lo
     hi    = float(np.percentile(valid, 99)) if hi is None else hi
     scaled = np.clip((m - lo) / (hi - lo + 1e-8), 0, 1)
-    scaled[m < 0] = 0   # suppressed pixels → blue (low end of JET)
-    return cv2.applyColorMap((scaled * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    cm = cv2.applyColorMap((scaled * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    cm[m < 0] = (0, 0, 0)   # suppressed pixels → black (distinct from low-score dark blue)
+    return cm
 
 
 def _make_colorbar(height, width=20):

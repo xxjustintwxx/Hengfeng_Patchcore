@@ -1,8 +1,8 @@
 """
 CT11 Front inspection: YOLOv11-seg + PatchCore heatmap.
 
-Classes (4):  0=Main IC  1=component  2=connecter  3=resistor
-Expected:     1          6            2            21
+Classes (5):  0=Main IC  1=board  2=component  3=connecter  4=resistor
+Expected:     1          —        6             2            21
 
 Usage:
   # Single image
@@ -26,34 +26,40 @@ infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11/Front/pcb_seg/weights/best.p
 infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11/CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
 infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11/Front"
 
-infer_pcb.CLASS_NAMES = ["Main IC", "component", "connecter", "resistor"]
+infer_pcb.CLASS_NAMES = ["Main IC", "board", "component", "connecter", "resistor"]
 
 infer_pcb.CLASS_COLORS = {
     0: (255, 100,   0),   # Main IC   — orange
-    1: ( 50, 180, 255),   # component — light blue
-    2: (  0, 200,   0),   # connecter — green
-    3: (  0, 200, 200),   # resistor  — yellow
+    1: (150, 150, 150),   # board     — gray (structural outline)
+    2: ( 50, 180, 255),   # component — light blue
+    3: (  0, 200,   0),   # connecter — green
+    4: (  0, 200, 200),   # resistor  — yellow
 }
 
-infer_pcb.LABEL_CLASSES = {0, 1, 2}   # skip resistor labels (21 is too many)
+infer_pcb.LABEL_CLASSES = {0, 2, 3}   # skip board (structural) and resistor (21 is too many)
 
 infer_pcb.EXPECTED_EXACT_COUNT = {
     0: 1,    # Main IC
-    1: 6,    # component
-    2: 2,    # connecter
-    3: 21,   # resistor
+    2: 6,    # component
+    3: 2,    # connecter
+    4: 21,   # resistor
 }
 
 infer_pcb.CLASS_CONF = {
     0: 0.25,   # Main IC
-    1: 0.25,   # component
-    2: 0.25,   # connecter
-    3: 0.40,   # resistor — raised to reduce false detections
+    1: 0.50,   # board
+    2: 0.25,   # component
+    3: 0.25,   # connecter
+    4: 0.40,   # resistor — raised to reduce false detections
 }
 
-infer_pcb.SUPPRESS_CLASSES    = set()   # no suppression for CT11 Front
+infer_pcb.SUPPRESS_CLASSES     = set()   # no suppression for CT11 Front
 infer_pcb.SUPPRESS_DILATION_PX = 0
-infer_pcb.CLASS_NMS_IOU       = {}
+infer_pcb.CLASS_NMS_IOU        = {}
+
+infer_pcb.BOARD_CLASS_ID    = 1    # board polygon → suppress background in heatmap
+infer_pcb.BOARD_DILATION_PX = 20   # grow board mask outward by 20 px before masking
+infer_pcb.BOARD_PAD_PX      = 128  # pad 1024→1280 so PCB boundary is never at image edge
 
 infer_pcb.ANOMALY_THRESH = 190.0   # placeholder — calibrate after seeing scores
 
