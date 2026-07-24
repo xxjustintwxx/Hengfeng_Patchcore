@@ -139,8 +139,16 @@ def _cross_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
 
 def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
                        nms_keep: np.ndarray = None, class_names=CLASS_NAMES,
-                       class_colors=CLASS_COLORS, label_classes=LABEL_CLASSES) -> np.ndarray:
-    """Draw YOLO detections on bgr: filled semi-transparent masks + boxes + labels."""
+                       class_colors=CLASS_COLORS, label_classes=LABEL_CLASSES,
+                       board_class_id=None) -> np.ndarray:
+    """Draw YOLO detections on bgr: filled semi-transparent masks + boxes + labels.
+
+    The board class (if any) is a structural helper used only for masking --
+    it isn't drawn at all here, since its mask covers nearly the whole image
+    and would otherwise show through any gap in another detection's own mask
+    (e.g. Main IC's segmentation not perfectly covering its own footprint),
+    regardless of draw order.
+    """
     out     = bgr.copy()
     overlay = bgr.copy()
     H, W    = bgr.shape[:2]
@@ -153,7 +161,10 @@ def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
     xyxy     = yolo_res.boxes.xyxy.cpu().numpy().astype(int)
     masks_np = yolo_res.masks.data.cpu().numpy() if yolo_res.masks is not None else None
 
-    for i, (cls_id, conf) in enumerate(zip(cls_ids, confs)):
+    for i in range(len(cls_ids)):
+        cls_id, conf = cls_ids[i], confs[i]
+        if cls_id == board_class_id:
+            continue
         if nms_keep is not None and not nms_keep[i]:
             continue
         if conf < class_conf.get(cls_id, 0.25):
@@ -222,10 +233,11 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
 
     yolo_res     = yolo_model(pil_img, conf=yolo_conf, iou=yolo_iou,
                               imgsz=run_imgsz, verbose=False)[0]
-    count_by_cls = {i: 0 for i in range(len(class_names))}
-    suppression  = np.zeros((H, W), dtype=bool)
-    board_mask   = np.zeros((H, W), dtype=bool)
-    board_found  = False
+    count_by_cls    = {i: 0 for i in range(len(class_names))}
+    suppression     = np.zeros((H, W), dtype=bool)
+    board_mask      = np.zeros((H, W), dtype=bool)
+    component_mask  = np.zeros((H, W), dtype=bool)
+    board_found     = False
 
     nms_keep = np.ones(0, dtype=bool)
     if yolo_res.boxes is not None:
@@ -264,20 +276,33 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
                 m = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST)
                 board_mask |= m > 0.5
                 board_found = True
-            elif cls_id in suppress_classes:
-                # Resize YOLO's internal mask to PatchCore resolution
+            else:
                 m = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST)
-                suppression |= m > 0.5
+                if cls_id in suppress_classes:
+                    suppression |= m > 0.5
+                if board_class_id is not None:
+                    # Any detected component sits ON the board by definition,
+                    # so its mask patches notches in the board's own
+                    # segmentation -- e.g. where a raised connector housing
+                    # occludes the visible PCB substrate right at the board's
+                    # edge, leaving a gap that touches the outer boundary
+                    # (not a fully-enclosed hole, so plain hole-fill can't
+                    # close it).
+                    component_mask |= m > 0.5
 
     if board_class_id is not None and board_found:
-        # Fill internal holes (board polygon around raised components leaves
-        # gaps) before dilating, so components don't create false suppressed
-        # islands inside the board.
+        board_mask |= component_mask
+        # Keep only the largest connected blob -- discards spurious detached
+        # islands (a false-positive board/component detection off on its own,
+        # not actually touching the real board) -- then fill internal holes
+        # of that blob (component footprints leave gaps inside the board's
+        # interior).
         contours, _ = cv2.findContours(board_mask.astype(np.uint8),
                                        cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
+            largest = max(contours, key=cv2.contourArea)
             solid = np.zeros_like(board_mask, dtype=np.uint8)
-            cv2.drawContours(solid, contours, -1, 1, cv2.FILLED)
+            cv2.drawContours(solid, [largest], -1, 1, cv2.FILLED)
             board_mask = solid.astype(bool)
         if board_dilation > 0:
             r      = board_dilation
@@ -296,7 +321,8 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     # the gray padding back off before returning.
     overlay_src = padded_bgr if board_pad > 0 else pcb_bgr
     yolo_bgr    = _draw_yolo_overlay(overlay_src, yolo_res, class_conf, nms_keep,
-                                     class_names, class_colors, label_classes)
+                                     class_names, class_colors, label_classes,
+                                     board_class_id)
     if board_pad > 0:
         yolo_bgr = yolo_bgr[board_pad:board_pad + H, board_pad:board_pad + W]
     detected_counts = {class_names[i]: count_by_cls[i] for i in range(len(class_names))}
