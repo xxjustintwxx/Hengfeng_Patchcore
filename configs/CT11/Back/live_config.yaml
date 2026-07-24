@@ -54,7 +54,7 @@ inference:
   device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
   # Placeholder from infer_ct11_back.py's ANOMALY_THRESH -- calibrate against real
   # good/defect boards once live captures are available.
-  score_threshold: 190.0
+  score_threshold: 200.0
 
 output:
   patchcore_model: "results/IR_Module/CT11/CT11_Back_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"

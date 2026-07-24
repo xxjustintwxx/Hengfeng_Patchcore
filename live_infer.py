@@ -55,6 +55,19 @@ CROSS_CLASS_NMS_IOU = 0.5       # class-agnostic: when two DIFFERENT-class boxes
                                 # overlap this much (e.g. a connecter and a
                                 # spurious Main IC both firing on the same
                                 # physical part), keep only the higher-confidence one
+CONTAINMENT_THRESH  = 0.03      # class-agnostic mask-overlap ratio (relative to the
+                                # smaller mask's own area) above which a DIFFERENT-
+                                # class detection is treated as sitting on top of a
+                                # bigger one (e.g. a spurious resistor on the Main
+                                # IC's die) and dropped -- the container always wins.
+                                # Deliberately low: a real resistor's mask still
+                                # touches Main IC's mask at ~0.7% (edge-pixel noise
+                                # between two independently-thresholded masks), while
+                                # a resistor actually sitting on the die measured ~6%
+                                # -- this sits with margin above the noise floor and
+                                # below the confirmed-false case, but is based on a
+                                # small sample; watch for it needing another look as
+                                # more captures come in.
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -135,6 +148,53 @@ def _cross_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
     new_keep = np.zeros_like(keep_mask)
     new_keep[idx[kept_local]] = True
     return new_keep
+
+
+def _containment_nms(boxes_xyxy: np.ndarray, masks: np.ndarray, cls_ids: np.ndarray,
+                     keep_mask: np.ndarray, board_class_id, containment_thresh: float) -> np.ndarray:
+    """Suppress a small mask that sits almost entirely INSIDE a much bigger
+    mask of a DIFFERENT class (e.g. a spurious resistor detected on top of
+    the Main IC's die). _cross_class_nms's IoU metric misses this: a tiny
+    region fully contained in a huge one still scores near-zero IoU, since
+    IoU divides by the (much larger) union -- this instead divides by the
+    smaller region's own area.
+
+    Uses the actual segmented pixel masks, not boxes -- a real resistor can
+    fall inside another class's rectangular BOUNDING BOX while sitting in a
+    genuine gap of that class's own irregular mask (Main IC's segmentation
+    often has real notches inside its bbox), which box-only containment
+    can't tell apart from the true spurious case.
+
+    The container (bigger mask) always wins, regardless of which one scored
+    higher -- confidence isn't comparable across classes (a Main IC at 0.52
+    can be a solid real detection while a resistor at 0.68 is borderline).
+    The board class is excluded, since every real component legitimately
+    sits inside the board's own footprint -- checking against it would
+    suppress everything.
+    """
+    keep  = keep_mask.copy()
+    idx   = np.where(keep_mask)[0]
+    idx   = idx[cls_ids[idx] != board_class_id]
+    areas = masks[idx].reshape(len(idx), -1).sum(axis=1)
+    for a in range(len(idx)):
+        i = idx[a]
+        if not keep[i]:
+            continue
+        xa1, ya1, xa2, ya2 = boxes_xyxy[i]
+        for b in range(a + 1, len(idx)):
+            j = idx[b]
+            if not keep[j] or cls_ids[i] == cls_ids[j]:
+                continue
+            xb1, yb1, xb2, yb2 = boxes_xyxy[j]
+            if xa2 <= xb1 or xb2 <= xa1 or ya2 <= yb1 or yb2 <= ya1:
+                continue  # boxes don't even overlap -- masks can't either
+            area_i, area_j = areas[a], areas[b]
+            if area_i == 0 or area_j == 0:
+                continue
+            inter = np.logical_and(masks[i], masks[j]).sum()
+            if inter / min(area_i, area_j) >= containment_thresh:
+                keep[i if area_i < area_j else j] = False
+    return keep
 
 
 def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
@@ -239,7 +299,8 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     component_mask  = np.zeros((H, W), dtype=bool)
     board_found     = False
 
-    nms_keep = np.ones(0, dtype=bool)
+    nms_keep  = np.ones(0, dtype=bool)
+    all_masks = None
     if yolo_res.boxes is not None:
         cls_ids    = yolo_res.boxes.cls.cpu().numpy().astype(int)
         confs      = yolo_res.boxes.conf.cpu().numpy()
@@ -247,39 +308,46 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         nms_keep   = _per_class_nms(boxes_xyxy, confs, cls_ids, class_nms_iou)
         nms_keep   = _cross_class_nms(boxes_xyxy, confs, nms_keep, CROSS_CLASS_NMS_IOU)
 
+        if yolo_res.masks is not None:
+            masks_data = yolo_res.masks.data.cpu().numpy()
+            mh, mw     = masks_data.shape[1:3]
+            # Mask resolution matches run_imgsz (the padded input's pixel size,
+            # when padded) -- crop the pad back off proportionally so this
+            # holds even if YOLO rounds imgsz to a stride multiple, then resize
+            # to PatchCore's (W, H). Decoded once up front (rather than only
+            # for kept detections) since _containment_nms needs every
+            # surviving box's actual mask, not just the ones it doesn't end
+            # up suppressing.
+            pad_frac_h = board_pad / (H + 2 * board_pad) if board_pad > 0 else 0
+            pad_frac_w = board_pad / (W + 2 * board_pad) if board_pad > 0 else 0
+            crop_y0, crop_y1 = int(round(mh * pad_frac_h)), mh - int(round(mh * pad_frac_h))
+            crop_x0, crop_x1 = int(round(mw * pad_frac_w)), mw - int(round(mw * pad_frac_w))
+            all_masks = np.empty((len(cls_ids), H, W), dtype=bool)
+            for i, mask_raw in enumerate(masks_data):
+                mask_crop = mask_raw[crop_y0:crop_y1, crop_x0:crop_x1] if board_pad > 0 else mask_raw
+                all_masks[i] = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST) > 0.5
+            nms_keep = _containment_nms(boxes_xyxy, all_masks, cls_ids, nms_keep,
+                                        board_class_id, CONTAINMENT_THRESH)
+
         for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
             if not keep:
                 continue
             if conf >= class_conf.get(cls_id, yolo_conf):
                 count_by_cls[cls_id] += 1
 
-    if (yolo_res.masks is not None and yolo_res.boxes is not None
-            and len(nms_keep)):
-        masks_data = yolo_res.masks.data.cpu().numpy()
-        cls_ids    = yolo_res.boxes.cls.cpu().numpy().astype(int)
-        confs      = yolo_res.boxes.conf.cpu().numpy()
-        mh, mw     = masks_data.shape[1:3]
-        # Mask resolution matches run_imgsz (the padded input's pixel size, when
-        # padded) -- crop the pad back off proportionally so this holds even if
-        # YOLO rounds imgsz to a stride multiple, then resize to PatchCore's (W, H).
-        pad_frac_h = board_pad / (H + 2 * board_pad) if board_pad > 0 else 0
-        pad_frac_w = board_pad / (W + 2 * board_pad) if board_pad > 0 else 0
-        crop_y0, crop_y1 = int(round(mh * pad_frac_h)), mh - int(round(mh * pad_frac_h))
-        crop_x0, crop_x1 = int(round(mw * pad_frac_w)), mw - int(round(mw * pad_frac_w))
-        for mask_raw, cls_id, conf, keep in zip(masks_data, cls_ids, confs, nms_keep):
+    if all_masks is not None:
+        for i, (cls_id, conf, keep) in enumerate(zip(cls_ids, confs, nms_keep)):
             if not keep:
                 continue
             if conf < class_conf.get(cls_id, yolo_conf):
                 continue
-            mask_crop = mask_raw[crop_y0:crop_y1, crop_x0:crop_x1] if board_pad > 0 else mask_raw
+            m = all_masks[i]
             if board_class_id is not None and cls_id == board_class_id:
-                m = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST)
-                board_mask |= m > 0.5
+                board_mask |= m
                 board_found = True
             else:
-                m = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST)
                 if cls_id in suppress_classes:
-                    suppression |= m > 0.5
+                    suppression |= m
                 if board_class_id is not None:
                     # Any detected component sits ON the board by definition,
                     # so its mask patches notches in the board's own
@@ -288,7 +356,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
                     # edge, leaving a gap that touches the outer boundary
                     # (not a fully-enclosed hole, so plain hole-fill can't
                     # close it).
-                    component_mask |= m > 0.5
+                    component_mask |= m
 
     if board_class_id is not None and board_found:
         board_mask |= component_mask
