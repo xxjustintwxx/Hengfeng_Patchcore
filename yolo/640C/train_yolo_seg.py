@@ -3,7 +3,7 @@ YOLOv11-seg training script for PCB component segmentation.
 
 Trains a YOLOv11-small-seg model to detect and segment PCB components:
   0: Main IC
-  1: connecter
+  1: connector
   2: resistor
   3: screw
 

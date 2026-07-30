@@ -1,7 +1,7 @@
 """
 CT11 Front inspection: YOLOv11-seg + PatchCore heatmap.
 
-Classes (5):  0=Main IC  1=board  2=component  3=connecter  4=resistor
+Classes (5):  0=Main IC  1=board  2=component  3=connector  4=resistor
 Expected:     1          —        6             2            21
 
 Usage:
@@ -26,13 +26,13 @@ infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11/Front/pcb_seg/weights/best.p
 infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11/CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
 infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11/Front"
 
-infer_pcb.CLASS_NAMES = ["Main IC", "board", "component", "connecter", "resistor"]
+infer_pcb.CLASS_NAMES = ["Main IC", "board", "component", "connector", "resistor"]
 
 infer_pcb.CLASS_COLORS = {
     0: (255, 100,   0),   # Main IC   — orange
     1: (150, 150, 150),   # board     — gray (structural outline)
     2: ( 50, 180, 255),   # component — light blue
-    3: (  0, 200,   0),   # connecter — green
+    3: (  0, 200,   0),   # connector — green
     4: (  0, 200, 200),   # resistor  — yellow
 }
 
@@ -41,7 +41,7 @@ infer_pcb.LABEL_CLASSES = {0, 2, 3}   # skip board (structural) and resistor (21
 infer_pcb.EXPECTED_EXACT_COUNT = {
     0: 1,    # Main IC
     2: 6,    # component
-    3: 2,    # connecter
+    3: 2,    # connector
     4: 21,   # resistor
 }
 
@@ -49,7 +49,7 @@ infer_pcb.CLASS_CONF = {
     0: 0.25,   # Main IC
     1: 0.50,   # board
     2: 0.25,   # component
-    3: 0.25,   # connecter
+    3: 0.25,   # connector
     4: 0.40,   # resistor — raised to reduce false detections
 }
 

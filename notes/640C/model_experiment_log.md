@@ -307,13 +307,13 @@ Small model trained with added `erasing=0.4` augmentation (random patch erasing 
 
 ### Component Count Results (small-1280, original images)
 
-| Image | Main IC | connecter | resistor | screw | YOLO verdict |
+| Image | Main IC | connector | resistor | screw | YOLO verdict |
 |-------|---------|-----------|---------|-------|--------------|
-| defect-01 | 1 ✓ | **3 ✗** | **38 ✗** | 4 ✓ | NG — missing connecter, extra resistor |
+| defect-01 | 1 ✓ | **3 ✗** | **38 ✗** | 4 ✓ | NG — missing connector, extra resistor |
 | defect-02 through 13 (excl. 01) | 1 ✓ | 4 ✓ | 35 ✓ | 4 ✓ | OK (from YOLO) |
 | good-14, 15, 16 | 1 ✓ | 4 ✓ | 35 ✓ | 4 ✓ | OK |
 
-Expected counts: Main IC=1, connecter=4, resistor=35, screw=4.
+Expected counts: Main IC=1, connector=4, resistor=35, screw=4.
 
 ### PatchCore Scores with Screw Suppression
 

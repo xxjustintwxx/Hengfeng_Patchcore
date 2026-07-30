@@ -43,7 +43,7 @@ conda activate aoi
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
 echo "=== YOLOv11-seg CT11 Front Training (small model + board class) ==="
-echo "Classes : Main IC(1), board(1), component(6), connecter(2), resistor(21)"
+echo "Classes : Main IC(1), board(1), component(6), connector(2), resistor(21)"
 echo "Node    : $(hostname)"
 echo "GPU     : $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
 echo "Python  : $(which python)"

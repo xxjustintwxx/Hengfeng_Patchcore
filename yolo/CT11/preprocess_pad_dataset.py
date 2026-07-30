@@ -22,13 +22,13 @@ SIDES = [
         "src":   ROOT / "data/CT11/Front/CT11 front",
         "dst":   ROOT / "data/CT11/Front/CT11 front_padded",
         "nc":    5,
-        "names": "['Main IC', 'board', 'component', 'connecter', 'resistor']",
+        "names": "['Main IC', 'board', 'component', 'connector', 'resistor']",
     },
     {
         "src":   ROOT / "data/CT11/Back/CT11 back",
         "dst":   ROOT / "data/CT11/Back/CT11 back_padded",
         "nc":    4,
-        "names": "['board', 'component', 'connecter', 'resistor']",
+        "names": "['board', 'component', 'connector', 'resistor']",
     },
 ]
 

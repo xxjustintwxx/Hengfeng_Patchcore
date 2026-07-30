@@ -44,12 +44,12 @@ YOLO_WEIGHTS   = ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"
 PATCHCORE_PATH = ROOT / "results/IR_Module/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
 OUTPUT_BASE    = ROOT / "results/yolo/640C/pcb_inspection"
 
-CLASS_NAMES    = ["Main IC", "connecter", "resistor", "screw"]
+CLASS_NAMES    = ["Main IC", "connector", "resistor", "screw"]
 
 # Per-class colour (BGR) for the custom YOLO overlay
 CLASS_COLORS = {
     0: (255, 100,   0),   # Main IC   — orange
-    1: (  0, 200,   0),   # connecter — green
+    1: (  0, 200,   0),   # connector — green
     2: (  0, 200, 200),   # resistor  — yellow (mask only, no text label)
     3: (  0,  80, 255),   # screw     — red
 }
@@ -61,7 +61,7 @@ LABEL_CLASSES = {0, 1, 3}
 # and picking the stable count at the chosen CLASS_CONF threshold.
 EXPECTED_EXACT_COUNT = {
     0: 1,    # Main IC
-    1: 4,    # connecter
+    1: 4,    # connector
     2: 35,   # resistor  ← calibrate this value
     3: 4,    # screw
 }
@@ -70,7 +70,7 @@ EXPECTED_EXACT_COUNT = {
 # while keeping sensitive detection for larger, critical components.
 CLASS_CONF = {
     0: 0.25,   # Main IC
-    1: 0.25,   # connecter
+    1: 0.25,   # connector
     2: 0.55,   # resistor  ← higher = fewer false detections
     3: 0.25,   # screw
 }

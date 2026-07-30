@@ -21,12 +21,12 @@ yolo:
   imgsz: 1280           # YOLO inference resolution
   class_conf:           # per-class confidence override (must be >= conf)
     0: 0.55             # Main IC
-    1: 0.55             # connecter
+    1: 0.55             # connector
     2: 0.55             # resistor
     3: 0.55             # screw
   expected_counts:      # exact component count check — NG if any mismatch
     0: 1                # Main IC
-    1: 4                # connecter
+    1: 4                # connector
     2: 35               # resistor
     3: 4                # screw
   suppress_dilation: 0  # expand screw mask edge outward by N px

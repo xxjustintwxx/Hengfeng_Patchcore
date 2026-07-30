@@ -17,7 +17,7 @@ Phone camera (IP Webcam)
   ROI crop + resize to 1024×1024   ← preprocess_config.yaml
         ↓
   YOLOv11-seg component detection
-    • count check (Main IC=1, connecter=4, resistor=35, screw=4)
+    • count check (Main IC=1, connector=4, resistor=35, screw=4)
     • build screw mask for suppression
         ↓
   PatchCore anomaly scoring

@@ -5,7 +5,7 @@ Classes (5):
   0: Main IC      — expected count: 1
   1: board        — full PCB outline (used for PatchCore heatmap masking)
   2: component    — expected count: 6
-  3: connecter    — expected count: 2
+  3: connector    — expected count: 2
   4: resistor     — expected count: 21
 
 Trained weights land at:  models/yolo/CT11/Front/pcb_seg/weights/best.pt

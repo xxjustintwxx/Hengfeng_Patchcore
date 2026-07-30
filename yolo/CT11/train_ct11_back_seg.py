@@ -4,7 +4,7 @@ YOLOv11-seg training script for CT11 Back PCB component segmentation.
 Classes (4):
   0: board      — full PCB outline (used for PatchCore heatmap masking)
   1: component  — expected count: 1
-  2: connecter  — expected count: 1
+  2: connector  — expected count: 1
   3: resistor   — expected count: 61
 
 Trained weights land at:  models/yolo/CT11/Back/pcb_seg/weights/best.pt

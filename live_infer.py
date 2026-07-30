@@ -40,10 +40,10 @@ from capture import capture_snapshot
 
 ROOT = Path(__file__).resolve().parent
 
-CLASS_NAMES  = ["Main IC", "connecter", "resistor", "screw"]
+CLASS_NAMES  = ["Main IC", "connector", "resistor", "screw"]
 CLASS_COLORS = {
     0: (255, 100,   0),   # Main IC   — orange
-    1: (  0, 200,   0),   # connecter — green
+    1: (  0, 200,   0),   # connector — green
     2: (  0, 200, 200),   # resistor  — yellow
     3: (  0,  80, 255),   # screw     — red
 }
@@ -52,7 +52,7 @@ SUPPRESS_CLASSES = {3}          # screws suppressed from PatchCore heatmap
 SUPPRESS_VALUE   = -1.0         # sentinel for suppressed pixels (excluded from colormap scaling)
 CLASS_NMS_IOU    = {3: 0.30}    # per-class post-NMS IoU for screw deduplication
 CROSS_CLASS_NMS_IOU = 0.5       # class-agnostic: when two DIFFERENT-class boxes
-                                # overlap this much (e.g. a connecter and a
+                                # overlap this much (e.g. a connector and a
                                 # spurious Main IC both firing on the same
                                 # physical part), keep only the higher-confidence one
 CONTAINMENT_THRESH  = 0.03      # class-agnostic mask-overlap ratio (relative to the
