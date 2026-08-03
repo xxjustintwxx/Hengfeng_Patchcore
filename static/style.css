@@ -340,6 +340,12 @@ button:active { transform: translateY(1px); }
 }
 .btn-ghost:hover { background: var(--bg-page); border-color: var(--text-muted); }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button:disabled:hover { background: transparent; border-color: var(--border-strong); }
+
 .btn-row {
   margin-top: 14px;
   display: flex;
@@ -596,3 +602,76 @@ button:active { transform: translateY(1px); }
   color: var(--ng);
   font-size: 0.88rem;
 }
+
+/* --- Developer mode --- */
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-top: 20px;
+}
+
+.checkbox-label input[type="checkbox"] {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  accent-color: var(--accent);
+}
+
+#dev-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+#dev-verify { margin-bottom: 20px; }
+
+#verify-ok-btn {
+  background: var(--ok);
+  color: #fff;
+  border-color: var(--ok);
+}
+#verify-ok-btn:hover { background: var(--ok-soft); color: var(--ok); }
+
+#verify-ng-btn {
+  background: var(--ng);
+  color: #fff;
+  border-color: var(--ng);
+}
+#verify-ng-btn:hover { background: var(--ng-soft); color: var(--ng); }
+
+#debug-details {
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.debug-class-block {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.debug-class-block h4 {
+  margin: 0 0 8px;
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+}
+
+.debug-det-row {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.debug-det-row.reject { color: var(--text-muted); }
+.debug-det-row.near { color: var(--accent-strong); }

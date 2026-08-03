@@ -14,12 +14,10 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count()))
 
 import cv2
-import numpy as np
-import PIL.Image
 from ultralytics import YOLO
 
 from live_infer import CLASS_NAMES as DEFAULT_CLASS_NAMES
-from live_infer import crop_and_resize, load_config
+from live_infer import crop_and_resize, load_config, _run_yolo
 
 
 def main():
@@ -45,57 +43,38 @@ def main():
     class_names = cfg_yolo.get("class_names", DEFAULT_CLASS_NAMES)
     class_conf = {int(k): v for k, v in cfg_yolo.get("class_conf", {}).items()}
     global_conf = cfg_yolo.get("conf", 0.25)
+    expected = {int(k): v for k, v in cfg_yolo.get("expected_counts", {}).items()}
 
-    # Board masking (CT11) pads the image with a gray border before running
-    # YOLO -- the models were retrained expecting this exact padding, so
-    # matching it here keeps these confidence numbers representative of what
-    # the live pipeline (_run_yolo) actually sees.
-    board_pad = cfg_yolo.get("board_pad", 128) if cfg_yolo.get("board_class") else 0
-    if board_pad > 0:
-        H, W = pcb_bgr.shape[:2]
-        padded = cv2.copyMakeBorder(pcb_bgr, board_pad, board_pad, board_pad, board_pad,
-                                    cv2.BORDER_CONSTANT, value=(114, 114, 114))
-        pil_img = PIL.Image.fromarray(cv2.cvtColor(padded, cv2.COLOR_BGR2RGB))
-        run_imgsz = W + 2 * board_pad
-    else:
-        pil_img = PIL.Image.fromarray(cv2.cvtColor(pcb_bgr, cv2.COLOR_BGR2RGB))
-        run_imgsz = cfg_yolo.get("imgsz", 1280)
-
+    # A fresh, uncached load -- this is a one-shot CLI script, no reason to
+    # share app.py's model cache. _run_yolo (not a manual model() call) so
+    # this always sees exactly what the live pipeline sees, including the
+    # board-masking gray-border padding, per-class/cross-class/containment
+    # NMS, etc. -- no separate copy of that logic to keep in sync.
     model = YOLO(cfg_yolo["weights"])
-    res = model(pil_img, conf=global_conf, iou=cfg_yolo.get("nms_iou", 0.20),
-                imgsz=run_imgsz, verbose=False)[0]
+    _, _, _, _, raw_detections = _run_yolo(model, pcb_bgr, cfg_yolo)
 
     print(f"Config:  {args.config}")
     print(f"Image:   {args.image}")
     print(f"Weights: {cfg_yolo['weights']}")
-    expected = {int(k): v for k, v in cfg_yolo.get("expected_counts", {}).items()}
     print()
 
-    if res.boxes is None or len(res.boxes) == 0:
-        print("No detections at all (below the global conf floor).")
-        return
-
-    cls_ids = res.boxes.cls.cpu().numpy().astype(int)
-    confs = res.boxes.conf.cpu().numpy()
-    boxes = res.boxes.xyxy.cpu().numpy()
-    if board_pad > 0:
-        boxes = boxes - board_pad   # back to pcb_bgr's coordinate space
-
-    for cid in sorted(set(cls_ids)):
-        name = class_names[cid] if cid < len(class_names) else f"class_{cid}"
+    for cid, name in enumerate(class_names):
         if args.class_filter and name != args.class_filter:
             continue
         thresh = class_conf.get(cid, global_conf)
-        idx = np.where(cls_ids == cid)[0]
-        order = idx[np.argsort(-confs[idx])]
-        kept = sum(1 for i in order if confs[i] >= thresh)
+        dets = raw_detections.get(name, [])
         exp_str = f" (expected {expected[cid]})" if cid in expected else ""
-        print(f"=== {name} (class {cid})  threshold={thresh}  kept={kept}/{len(order)}{exp_str} ===")
-        for i in order:
-            x1, y1, x2, y2 = boxes[i].astype(int)
-            flag = "PASS  " if confs[i] >= thresh else "reject"
-            near = "  <-- within 0.05 of threshold" if abs(confs[i] - thresh) < 0.05 else ""
-            print(f"  {flag}  conf={confs[i]:.4f}  box=[{x1},{y1},{x2},{y2}]{near}")
+        if not dets:
+            print(f"=== {name} (class {cid})  threshold={thresh}  0 raw detections{exp_str} ===")
+            print()
+            continue
+        kept = sum(1 for d in dets if d["pass_threshold"])
+        print(f"=== {name} (class {cid})  threshold={thresh}  kept={kept}/{len(dets)}{exp_str} ===")
+        for d in dets:
+            flag = "PASS  " if d["pass_threshold"] else "reject"
+            near = "  <-- within 0.05 of threshold" if abs(d["conf"] - thresh) < 0.05 else ""
+            nms = "" if d["nms_kept"] else "  <-- dropped by NMS"
+            print(f"  {flag}  conf={d['conf']:.4f}  box={d['box']}{near}{nms}")
         print()
 
 

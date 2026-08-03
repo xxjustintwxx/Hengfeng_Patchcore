@@ -69,6 +69,11 @@
         </div>
       </form>
       <p id="settings-status" class="status"></p>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="dev-mode-toggle">
+        Developer mode — verify results and inspect raw detections
+      </label>
     </section>
 
     <!-- Screen 2: Capture -->
@@ -171,6 +176,30 @@
         </div>
         <p class="status mono">Score: <span id="score-value"></span>  |  Inference time: <span id="infer-time-value"></span>s</p>
         <p id="timing-breakdown" class="status mono"></p>
+      </div>
+
+      <div id="dev-panel" hidden>
+        <p class="eyebrow">Developer mode</p>
+
+        <div id="dev-verify">
+          <p id="dev-verdict-caption" class="status mono"></p>
+          <div class="btn-row">
+            <button id="verify-ok-btn" class="btn-ghost">Actually OK</button>
+            <button id="verify-ng-btn" class="btn-ghost">Actually NG</button>
+          </div>
+          <p id="verify-status" class="status"></p>
+        </div>
+
+        <button id="toggle-debug-btn" type="button" class="btn-ghost details-toggle">
+          <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+          <span>Debug: raw detections</span>
+        </button>
+        <div id="debug-details" hidden></div>
+
+        <p id="dev-stats" class="status mono"></p>
       </div>
 
       <div class="btn-row">

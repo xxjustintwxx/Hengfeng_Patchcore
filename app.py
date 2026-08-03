@@ -9,7 +9,9 @@ Reuses live_infer.py's pipeline helpers directly instead of reimplementing them.
 import argparse
 import base64
 import glob
+import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -72,11 +74,16 @@ STATE = {
     "yolo_cache": {},        # yolo weights path -> YOLO instance
     "active_model_path": None,
     "active_config_path": None,
+    "active_profile_label": None,
     "suppress_dilation": 0,
     "board_dilation": 20,
     "score_threshold": None,
     "pending_captures": {},  # capture_id -> raw_bgr
+    "last_debug_detections": None,  # raw_detections from the most recent /api/infer call
+    "last_debug_profile": None,
 }
+
+RESULTS_DIR = os.path.join(str(ROOT), "results")
 
 GRID_MAX = 320  # cap the interactive threshold-grid's long side, in cells
 
@@ -88,6 +95,26 @@ def encode_jpeg_b64(bgr_img: np.ndarray) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
 
 
+def _profile_label(config_path: str) -> str:
+    """Derive the human-readable profile label ("640C", "CT11/Front", ...) from
+    a live_config.yaml path -- the path relative to configs/ with the trailing
+    /live_config.yaml stripped. Shared by discover_profiles() and
+    api_settings() so every caller derives it identically."""
+    configs_root = os.path.join(str(ROOT), "configs")
+    abs_path = config_path if os.path.isabs(config_path) else os.path.join(str(ROOT), config_path)
+    return os.path.dirname(os.path.relpath(abs_path, configs_root)).replace("\\", "/")
+
+
+def append_jsonl(path: str, record: dict) -> None:
+    """Append one JSON-encoded record as a line to path, creating parent dirs
+    as needed. Opened/closed per call -- no long-lived file handle across
+    requests -- which is fine since this server runs threaded=False (single-
+    threaded), so there's no concurrent-writer race to guard against."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
 def discover_profiles():
     """Scan configs/**/live_config.yaml for inspection profiles.
 
@@ -97,11 +124,10 @@ def discover_profiles():
     "CT11/Front", "CT11/Back".
     """
     pattern = os.path.join(str(ROOT), "configs", "**", "live_config.yaml")
-    configs_root = os.path.join(str(ROOT), "configs")
     found = []
     for path in sorted(glob.glob(pattern, recursive=True)):
         rel_path = os.path.relpath(path, str(ROOT)).replace("\\", "/")
-        label = os.path.dirname(os.path.relpath(path, configs_root)).replace("\\", "/")
+        label = _profile_label(path)
         try:
             cfg = load_config(path)
         except Exception:
@@ -218,6 +244,7 @@ def api_settings():
 
     STATE["cfg"] = cfg
     STATE["active_config_path"] = config_path
+    STATE["active_profile_label"] = _profile_label(config_path)
     STATE["active_model_path"] = model_path
     STATE["suppress_dilation"] = suppress_dilation
     STATE["board_dilation"] = board_dilation
@@ -316,10 +343,12 @@ def api_infer():
     cfg_yolo["board_dilation"] = STATE["board_dilation"]
     yolo_model = get_yolo(cfg_yolo["weights"])
     t0 = time.time()
-    suppression, issues, detected_counts, yolo_bgr = _run_yolo(
+    suppression, issues, detected_counts, yolo_bgr, raw_detections = _run_yolo(
         yolo_model, pcb_bgr, cfg_yolo
     )
     timings["yolo"] = round(time.time() - t0, 2)
+    STATE["last_debug_detections"] = raw_detections
+    STATE["last_debug_profile"] = STATE["active_profile_label"]
 
     t0 = time.time()
     pc = get_patchcore(STATE["active_model_path"])
@@ -374,7 +403,30 @@ def api_infer():
         np.percentile(valid_px, 95)
     ) if valid_px.size else hi
 
+    # Always-on structured log of every inference -- independent of developer
+    # mode, so score/issues/timings history exists even if dev mode is never
+    # turned on.
+    append_jsonl(os.path.join(RESULTS_DIR, "inference_log.jsonl"), {
+        "ts": ts,
+        "profile": STATE["active_profile_label"],
+        "config_path": STATE["active_config_path"],
+        "score": score,
+        "score_threshold": threshold,
+        "surface_fail": surface_fail,
+        "detected_counts": detected_counts,
+        "issues": issues,
+        "system_verdict": label,
+        "result_path": result_path,
+        "timings": timings,
+        "suppress_dilation": STATE["suppress_dilation"],
+        "board_dilation": STATE["board_dilation"],
+    })
+
     return jsonify({
+        "ts": ts,
+        "profile": STATE["active_profile_label"],
+        "config_path": STATE["active_config_path"],
+        "system_verdict": label,
         "pcb_image": encode_jpeg_b64(pcb_bgr),
         "yolo_image": encode_jpeg_b64(yolo_bgr),
         "heatmap_image": encode_jpeg_b64(heatmap_blend),
@@ -392,6 +444,120 @@ def api_infer():
         "result_path": result_path,
         "timings": timings,
     })
+
+
+@app.route("/api/debug_confidences")
+def api_debug_confidences():
+    """Raw per-class detection confidences from the most recent /api/infer
+    call, for developer mode's debug panel. Served from STATE (cached right
+    after _run_yolo already computed it) -- no re-inference, so this is
+    near-instant and doesn't add any weight to the normal capture path."""
+    if STATE["last_debug_detections"] is None:
+        return jsonify({"error": "No inference has run yet this session"}), 400
+    return jsonify({
+        "profile": STATE["last_debug_profile"],
+        "detections": STATE["last_debug_detections"],
+    })
+
+
+def compute_stats(profile=None):
+    """Tally TP/FP/TN/FN from verification_log.jsonl, optionally filtered to
+    one profile. Tolerates a malformed/truncated last line (e.g. the process
+    was killed mid-write)."""
+    path = os.path.join(RESULTS_DIR, "verification_log.jsonl")
+    tp = fp = tn = fn = 0
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if profile and r.get("profile") != profile:
+                    continue
+                c = r.get("classification")
+                if c == "TP":
+                    tp += 1
+                elif c == "FP":
+                    fp += 1
+                elif c == "TN":
+                    tn += 1
+                elif c == "FN":
+                    fn += 1
+    total = tp + fp + tn + fn
+
+    def safe_div(n, d):
+        return round(n / d, 3) if d else None
+
+    return {
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn, "total": total,
+        "precision": safe_div(tp, tp + fp),
+        "recall": safe_div(tp, tp + fn),
+        "specificity": safe_div(tn, tn + fp),
+        "accuracy": safe_div(tp + tn, total),
+    }
+
+
+@app.route("/api/verify", methods=["POST"])
+def api_verify():
+    """Record a human's ground-truth verdict for the most recent inference
+    (developer mode). Fields are echoed straight back from the client's
+    already-in-hand /api/infer response -- trusted with no server-side
+    re-lookup, consistent with every other endpoint here (no auth, single
+    local operator), and avoids racing a second capture that starts before
+    this one gets verified (verification is intentionally non-blocking)."""
+    data = request.get_json(force=True)
+    human_verdict = data.get("human_verdict")
+    system_verdict = data.get("system_verdict")
+    if human_verdict not in ("OK", "NG"):
+        return jsonify({"error": "human_verdict must be 'OK' or 'NG'"}), 400
+    if system_verdict not in ("OK", "NG", "LIVE"):
+        return jsonify({"error": "system_verdict must be 'OK', 'NG', or 'LIVE'"}), 400
+
+    # "LIVE" means the system explicitly declined to make a surface-anomaly
+    # call (no NG threshold configured) -- not "the system said OK". Log the
+    # verification either way (useful for eyeballing scores while picking a
+    # threshold), but only classify into TP/FP/TN/FN when the system actually
+    # made a binary call, so LIVE-mode rows don't corrupt the confusion matrix.
+    classification = None
+    if system_verdict in ("OK", "NG"):
+        system_is_ng = system_verdict == "NG"
+        human_is_ng = human_verdict == "NG"
+        classification = ("TP" if system_is_ng and human_is_ng else
+                           "FP" if system_is_ng and not human_is_ng else
+                           "FN" if not system_is_ng and human_is_ng else
+                           "TN")
+
+    profile = data.get("profile")
+    record = {
+        "ts": data.get("ts"),
+        "profile": profile,
+        "config_path": data.get("config_path"),
+        "result_path": data.get("result_path"),
+        "system_verdict": system_verdict,
+        "human_verdict": human_verdict,
+        "score": data.get("score"),
+        "issues": data.get("issues"),
+        "classification": classification,
+        "verified_at": datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
+    }
+    append_jsonl(os.path.join(RESULTS_DIR, "verification_log.jsonl"), record)
+
+    # Only copy the image when classified (i.e. not LIVE mode) -- that's the
+    # axis the folder structure organizes by. The JSONL record above is
+    # written regardless.
+    result_path = data.get("result_path")
+    if result_path and classification and os.path.isfile(result_path):
+        dest_dir = os.path.join(RESULTS_DIR, "dev_review", profile or "unknown", classification)
+        os.makedirs(dest_dir, exist_ok=True)
+        shutil.copy2(result_path, os.path.join(dest_dir, os.path.basename(result_path)))
+
+    return jsonify({"classification": classification, **compute_stats(profile)})
+
+
+@app.route("/api/stats")
+def api_stats():
+    return jsonify(compute_stats(request.args.get("profile")))
 
 
 def main():

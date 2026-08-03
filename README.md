@@ -176,10 +176,15 @@ Results saved to `results/live/`.
 ### 7. Web UI
 
 ```bash
-python app.py --config live_config.yaml --device cuda
+python app.py --device cpu
 ```
 
-Opens a Flask dashboard at `http://localhost:5000` — click Capture to inspect a board.
+Opens a Flask dashboard at `http://localhost:5000`. No profile is loaded at startup —
+pick a module (640C / CT11 Front / CT11 Back) on the Setup screen, which loads its
+camera, YOLO weights, and PatchCore model together as one unit. `--device` overrides
+every profile's own `inference.device` (use `cpu` if the machine has no GPU, otherwise
+omit it to use each profile's own configured device); `--port` picks a different port
+(default 5000).
 
 ---
 

@@ -2,6 +2,7 @@ const state = {
   captureId: null,
   activeSettings: null,
   lastResult: null,
+  devMode: localStorage.getItem("devMode") === "1",
 };
 
 const screens = {
@@ -145,6 +146,16 @@ document.getElementById("nav-settings").addEventListener("click", () => {
   updateSettingsScreenChrome();
   populateSettingsForm();
   showScreen("settings");
+});
+
+// Toggling dev mode should immediately show/hide the dev panel for whatever
+// result is already on screen, not just future captures.
+document.getElementById("dev-mode-toggle").addEventListener("change", (e) => {
+  state.devMode = e.target.checked;
+  localStorage.setItem("devMode", state.devMode ? "1" : "0");
+  if (state.lastResult) {
+    renderDevPanel(state.lastResult);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -345,6 +356,8 @@ function renderResult(data) {
   // that range, slider.value would silently clamp and no longer match the
   // actual threshold being evaluated.
   updateVerdict(data, data.suggested_threshold);
+
+  renderDevPanel(data);
 }
 
 document.getElementById("toggle-details-btn").addEventListener("click", () => {
@@ -465,8 +478,140 @@ window.addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Developer mode: ground-truth verification + debug confidence panel
+// ---------------------------------------------------------------------------
+
+function renderDevPanel(data) {
+  const panel = document.getElementById("dev-panel");
+  panel.hidden = !state.devMode;
+  if (!state.devMode) return;
+
+  const caption = document.getElementById("dev-verdict-caption");
+  caption.textContent = data.system_verdict === "LIVE"
+    ? "System verdict: LIVE — no NG threshold set. This will be recorded but won't count toward TP/FP/TN/FN."
+    : `System verdict: ${data.system_verdict}`;
+
+  const okBtn = document.getElementById("verify-ok-btn");
+  const ngBtn = document.getElementById("verify-ng-btn");
+  const statusEl = document.getElementById("verify-status");
+  if (data.verified) {
+    okBtn.disabled = true;
+    ngBtn.disabled = true;
+    setStatus(statusEl, data.verifiedClassification === null
+      ? "Logged (unclassified — LIVE mode)."
+      : `Logged as ${data.verifiedClassification}.`);
+  } else {
+    okBtn.disabled = false;
+    ngBtn.disabled = false;
+    setStatus(statusEl, "");
+  }
+
+  // Stale detections from a previous capture shouldn't linger expanded.
+  const debugDetails = document.getElementById("debug-details");
+  debugDetails.hidden = true;
+  debugDetails.innerHTML = "";
+  const debugBtn = document.getElementById("toggle-debug-btn");
+  debugBtn.classList.remove("expanded");
+  debugBtn.querySelector("span").textContent = "Debug: raw detections";
+
+  refreshDevStats(data.profile);
+}
+
+function fmtRate(v) {
+  return v === null ? "n/a" : (v * 100).toFixed(1) + "%";
+}
+
+async function refreshDevStats(profile) {
+  const res = await fetch(`/api/stats?profile=${encodeURIComponent(profile)}`);
+  const stats = await res.json();
+  document.getElementById("dev-stats").textContent =
+    `Session stats (${profile}) — TP: ${stats.tp}  FP: ${stats.fp}  TN: ${stats.tn}  FN: ${stats.fn}  |  ` +
+    `precision: ${fmtRate(stats.precision)}  recall: ${fmtRate(stats.recall)}  accuracy: ${fmtRate(stats.accuracy)}`;
+}
+
+async function submitVerification(humanVerdict) {
+  const data = state.lastResult;
+  if (!data) return;
+  const okBtn = document.getElementById("verify-ok-btn");
+  const ngBtn = document.getElementById("verify-ng-btn");
+  const statusEl = document.getElementById("verify-status");
+  okBtn.disabled = true;
+  ngBtn.disabled = true;
+  setStatus(statusEl, "Saving...");
+
+  const res = await fetch("/api/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ts: data.ts,
+      profile: data.profile,
+      config_path: data.config_path,
+      result_path: data.result_path,
+      system_verdict: data.system_verdict,
+      score: data.score,
+      issues: data.issues,
+      human_verdict: humanVerdict,
+    }),
+  });
+  const result = await res.json();
+  if (!res.ok) {
+    setStatus(statusEl, "Error: " + result.error, true);
+    okBtn.disabled = false;
+    ngBtn.disabled = false;
+    return;
+  }
+
+  data.verified = true;
+  data.verifiedClassification = result.classification;
+  setStatus(statusEl, result.classification === null
+    ? "Logged (unclassified — LIVE mode)."
+    : `Logged as ${result.classification}.`);
+  refreshDevStats(data.profile);
+}
+
+document.getElementById("verify-ok-btn").addEventListener("click", () => submitVerification("OK"));
+document.getElementById("verify-ng-btn").addEventListener("click", () => submitVerification("NG"));
+
+function renderDebugDetections(detections) {
+  return Object.entries(detections).map(([name, dets]) => {
+    const kept = dets.filter((d) => d.pass_threshold).length;
+    const rows = dets.length
+      ? dets.map((d) => {
+          const rowCls = d.pass_threshold ? "" : "reject";
+          const nmsNote = d.nms_kept ? "" : "  dropped by NMS";
+          return `<div class="debug-det-row ${rowCls}">` +
+            `<span>${d.pass_threshold ? "PASS  " : "reject"}</span>` +
+            `<span>conf=${d.conf.toFixed(4)}</span>` +
+            `<span>box=[${d.box.join(",")}]</span>` +
+            `<span>${nmsNote}</span>` +
+          `</div>`;
+        }).join("")
+      : `<div class="debug-det-row">0 raw detections</div>`;
+    return `<div class="debug-class-block"><h4>${name} — kept ${kept}/${dets.length}</h4>${rows}</div>`;
+  }).join("");
+}
+
+document.getElementById("toggle-debug-btn").addEventListener("click", async () => {
+  const details = document.getElementById("debug-details");
+  const btn = document.getElementById("toggle-debug-btn");
+  const willShow = details.hidden;
+  details.hidden = !willShow;
+  btn.classList.toggle("expanded", willShow);
+  btn.querySelector("span").textContent = willShow ? "Hide raw detections" : "Debug: raw detections";
+  if (!willShow) return;
+
+  details.innerHTML = "Loading...";
+  const res = await fetch("/api/debug_confidences");
+  const data = await res.json();
+  details.innerHTML = res.ok
+    ? renderDebugDetections(data.detections)
+    : `<p class="status error">${data.error}</p>`;
+});
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
+document.getElementById("dev-mode-toggle").checked = state.devMode;
 loadModels();
 showScreen("settings");

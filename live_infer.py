@@ -68,6 +68,14 @@ CONTAINMENT_THRESH  = 0.03      # class-agnostic mask-overlap ratio (relative to
                                 # below the confirmed-false case, but is based on a
                                 # small sample; watch for it needing another look as
                                 # more captures come in.
+OFF_BOARD_OVERLAP_THRESH = 0.5  # (board-masking profiles only) fraction of a
+                                # non-board detection's own mask that must fall
+                                # inside the board outline to be trusted -- a real
+                                # component can't exist off the physical PCB, so a
+                                # detection mostly outside it (e.g. a resistor the
+                                # model hallucinated in the background) is dropped.
+                                # A confirmed false positive measured 0% overlap,
+                                # real resistors measured 100% -- comfortable margin.
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -252,7 +260,7 @@ def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
 def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     """Run YOLO on the preprocessed PCB image (already ROI-cropped + resized).
 
-    Returns (suppression, issues, detected_counts, yolo_bgr).
+    Returns (suppression, issues, detected_counts, yolo_bgr, raw_detections).
     """
     H, W    = pcb_bgr.shape[:2]
 
@@ -329,12 +337,10 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
             nms_keep = _containment_nms(boxes_xyxy, all_masks, cls_ids, nms_keep,
                                         board_class_id, CONTAINMENT_THRESH)
 
-        for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
-            if not keep:
-                continue
-            if conf >= class_conf.get(cls_id, yolo_conf):
-                count_by_cls[cls_id] += 1
-
+    # Union masks of every kept, conf-passing detection into board_mask
+    # (board class) / component_mask (everything else) -- done before
+    # counting so the board mask can be finalized and used to reject
+    # off-board detections (below) before they're counted.
     if all_masks is not None:
         for i, (cls_id, conf, keep) in enumerate(zip(cls_ids, confs, nms_keep)):
             if not keep:
@@ -378,6 +384,29 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
             board_mask = cv2.dilate(board_mask.astype(np.uint8), kernel).astype(bool)
         suppression |= ~board_mask
 
+        # A component detection sitting almost entirely off the finalized
+        # board outline can't be a real physical part (e.g. a resistor the
+        # model hallucinated in the background above the board) -- drop it
+        # from nms_keep entirely so it's excluded from counting, the
+        # overlay, and raw_detections' nms_kept flag alike.
+        if all_masks is not None:
+            for i, cls_id in enumerate(cls_ids):
+                if not nms_keep[i] or cls_id == board_class_id:
+                    continue
+                area = all_masks[i].sum()
+                if area == 0:
+                    continue
+                overlap = np.logical_and(all_masks[i], board_mask).sum()
+                if overlap / area < OFF_BOARD_OVERLAP_THRESH:
+                    nms_keep[i] = False
+
+    if yolo_res.boxes is not None:
+        for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
+            if not keep:
+                continue
+            if conf >= class_conf.get(cls_id, yolo_conf):
+                count_by_cls[cls_id] += 1
+
     issues = []
     for cls_id, exp in expected.items():
         got = count_by_cls[cls_id]
@@ -395,7 +424,28 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         yolo_bgr = yolo_bgr[board_pad:board_pad + H, board_pad:board_pad + W]
     detected_counts = {class_names[i]: count_by_cls[i] for i in range(len(class_names))}
 
-    return suppression, issues, detected_counts, yolo_bgr
+    # Raw per-detection confidence report, for debugging/threshold-calibration
+    # (e.g. check_yolo_confidence.py, and the web app's debug panel) -- every
+    # class is included even with zero raw detections (the most diagnostically
+    # important case, e.g. a required component reading 0 entirely), and
+    # nothing here is filtered by class_conf/nms_keep -- those are reported as
+    # flags (pass_threshold, nms_kept) so callers can see the full picture.
+    raw_detections = {name: [] for name in class_names}
+    if yolo_res.boxes is not None:
+        for i, cls_id in enumerate(cls_ids):
+            x1, y1, x2, y2 = boxes_xyxy[i]
+            if board_pad > 0:
+                x1, y1, x2, y2 = x1 - board_pad, y1 - board_pad, x2 - board_pad, y2 - board_pad
+            raw_detections[class_names[cls_id]].append({
+                "conf": round(float(confs[i]), 4),
+                "box": [int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))],
+                "pass_threshold": bool(confs[i] >= class_conf.get(cls_id, yolo_conf)),
+                "nms_kept": bool(nms_keep[i]),
+            })
+        for dets in raw_detections.values():
+            dets.sort(key=lambda d: d["conf"], reverse=True)
+
+    return suppression, issues, detected_counts, yolo_bgr, raw_detections
 
 
 # ---------------------------------------------------------------------------
@@ -603,7 +653,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     if yolo_model is not None:
         try:
             cfg_yolo = cfg.get("yolo", {})
-            suppression, issues, detected_counts, yolo_bgr = _run_yolo(
+            suppression, issues, detected_counts, yolo_bgr, _ = _run_yolo(
                 yolo_model, pcb_bgr, cfg_yolo
             )
         except Exception as e:
