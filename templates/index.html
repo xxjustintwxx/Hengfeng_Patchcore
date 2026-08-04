@@ -13,6 +13,14 @@
         <p class="eyebrow">Automated Optical Inspection</p>
         <h1>PCB Inspection</h1>
       </div>
+      <button id="nav-history" class="icon-btn" type="button" aria-label="History">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7v5l3 3"></path>
+        </svg>
+        <span>History</span>
+      </button>
       <button id="nav-settings" class="icon-btn" type="button" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -204,6 +212,25 @@
 
       <div class="btn-row">
         <button id="capture-again-btn" class="btn-primary">Capture another</button>
+      </div>
+    </section>
+
+    <!-- Screen 4: History (not part of the Setup/Capture/Result step flow --
+         reachable any time via the header's History button) -->
+    <section id="screen-history" class="screen" hidden>
+      <h2>Recent captures</h2>
+      <form onsubmit="return false">
+        <label>
+          Module
+          <select id="history-profile-select">
+            <option value="">All modules</option>
+          </select>
+        </label>
+      </form>
+      <p id="history-status" class="status"></p>
+      <div id="history-list"></div>
+      <div class="btn-row">
+        <button id="history-close-btn" class="btn-ghost">Close</button>
       </div>
     </section>
   </main>

@@ -2,7 +2,7 @@
 Local web UI for the capture -> ROI check -> YOLO -> PatchCore pipeline.
 
 Usage:
-  python app.py --config live_config.yaml --device cpu
+  python app.py --device cpu
 
 Reuses live_infer.py's pipeline helpers directly instead of reimplementing them.
 """
@@ -26,7 +26,7 @@ os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count()))
 import cv2
 import numpy as np
 import torch
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from ultralytics import YOLO
 
 import patchcore.common
@@ -84,6 +84,10 @@ STATE = {
 }
 
 RESULTS_DIR = os.path.join(str(ROOT), "results")
+# Narrower than RESULTS_DIR on purpose: RESULTS_DIR also holds the JSONL logs,
+# dev_review/ copies, and IR_Module/ (the actual trained PatchCore weights) --
+# only results/live/**/*_result.jpg needs to be web-servable.
+LIVE_RESULTS_DIR = os.path.join(RESULTS_DIR, "live")
 
 GRID_MAX = 320  # cap the interactive threshold-grid's long side, in cells
 
@@ -558,6 +562,62 @@ def api_verify():
 @app.route("/api/stats")
 def api_stats():
     return jsonify(compute_stats(request.args.get("profile")))
+
+
+def result_image_url(result_path):
+    """Translate a logged result_path (e.g. "./results/live/CT11/Front/
+    <ts>_result.jpg", relative to ROOT) into a URL servable by
+    serve_result_image() below. Returns None if result_path is missing or
+    doesn't resolve under LIVE_RESULTS_DIR (e.g. save_result failed at
+    capture time and the log recorded a null path)."""
+    if not result_path:
+        return None
+    abs_path = os.path.abspath(os.path.join(str(ROOT), result_path))
+    try:
+        rel = os.path.relpath(abs_path, LIVE_RESULTS_DIR)
+    except ValueError:
+        return None  # different drive on Windows -- can't be under LIVE_RESULTS_DIR
+    if rel.startswith(".."):
+        return None
+    return "/results/live/" + rel.replace(os.sep, "/")
+
+
+def read_inference_log(profile=None, limit=20):
+    """Last `limit` entries from inference_log.jsonl, most recent first,
+    optionally filtered to one profile, each with an added image_url.
+    Full-file scan-then-slice, same pattern as compute_stats() -- confirmed
+    fine at real scale (the live log is a few hundred KB after 11 days of
+    real use); if this ever needs an efficient tail-read, that should happen
+    once centrally for both this and compute_stats(), not bolted on here
+    alone."""
+    path = os.path.join(RESULTS_DIR, "inference_log.jsonl")
+    entries = []
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if profile and r.get("profile") != profile:
+                    continue
+                entries.append(r)
+    entries = entries[-limit:][::-1]
+    for e in entries:
+        e["image_url"] = result_image_url(e.get("result_path"))
+    return entries
+
+
+@app.route("/api/history")
+def api_history():
+    profile = request.args.get("profile") or None
+    limit = max(1, min(200, int(request.args.get("limit", 20))))
+    return jsonify({"entries": read_inference_log(profile, limit)})
+
+
+@app.route("/results/live/<path:subpath>")
+def serve_result_image(subpath):
+    return send_from_directory(LIVE_RESULTS_DIR, subpath)
 
 
 def main():

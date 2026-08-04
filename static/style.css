@@ -147,8 +147,11 @@ header {
 
 /* `justify-content: space-between` puts a lone wrapped item at the start,
    not the end -- pushing it right with auto margin instead keeps it on the
-   right whether or not the row wraps. */
-.header-inner .icon-btn { margin-left: auto; }
+   right whether or not the row wraps. Only the FIRST icon-btn gets the auto
+   margin: with two+ buttons, auto margins on every one of them would each
+   compete for the same free space and spread the group apart instead of
+   clustering it at the right edge (the flex `gap` already spaces siblings). */
+.header-inner .icon-btn:first-of-type { margin-left: auto; }
 
 .eyebrow {
   font-family: var(--font-mono);
@@ -299,7 +302,7 @@ form input, form select {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-form select { max-width: 560px; font-family: var(--font-ui); }
+form select { font-family: var(--font-ui); }
 
 form input:focus, form select:focus,
 button:focus-visible, input[type="range"]:focus-visible {
@@ -675,3 +678,46 @@ button:disabled:hover { background: transparent; border-color: var(--border-stro
 
 .debug-det-row.reject { color: var(--text-muted); }
 .debug-det-row.near { color: var(--accent-strong); }
+
+/* --- History screen --- */
+
+#history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.history-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 10px;
+}
+
+.history-card img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.history-card-placeholder {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: var(--bg-page);
+  border: 1px dashed var(--border-strong);
+}
+
+.history-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.history-card-meta .status { margin: 0; }

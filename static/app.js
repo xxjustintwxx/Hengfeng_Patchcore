@@ -9,8 +9,13 @@ const screens = {
   settings: document.getElementById("screen-settings"),
   capture: document.getElementById("screen-capture"),
   result: document.getElementById("screen-result"),
+  history: document.getElementById("screen-history"),
 };
 
+// "history" is deliberately not part of the step flow -- it's a side view
+// reachable any time via the header button, not one of the 3 pipeline steps.
+// updateStepIndicator() below no-ops gracefully for a name it doesn't
+// recognize (stepOrder.indexOf returns -1, so no step gets .active/.done).
 const stepOrder = ["settings", "capture", "result"];
 
 function showScreen(name) {
@@ -57,6 +62,19 @@ async function loadModels() {
     opt.textContent = p.label;
     select.appendChild(opt);
   }
+
+  // History's filter is keyed by profile *label* (e.g. "CT11/Front"), since
+  // that's the field inference_log.jsonl entries are tagged with -- not
+  // config_path, which #model-select above uses.
+  const historySelect = document.getElementById("history-profile-select");
+  historySelect.innerHTML = '<option value="">All modules</option>';
+  for (const p of profiles) {
+    const opt = document.createElement("option");
+    opt.value = p.label;
+    opt.textContent = p.label;
+    historySelect.appendChild(opt);
+  }
+
   applyProfileDefaults();
 }
 
@@ -76,6 +94,28 @@ function applyProfileDefaults() {
 
 document.getElementById("model-select").addEventListener("change", applyProfileDefaults);
 
+const LAST_SETTINGS_KEY = "lastSettings";
+
+// Shared by the manual Start/Save submit and the startup auto-restore --
+// posts to /api/settings and, on success, updates state + persists the
+// payload for next time. Doesn't touch #settings-status or navigate itself:
+// the two callers want different status text and next-screen behavior.
+async function applySettings(payload) {
+  const res = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { ok: false, error: data.error };
+  }
+  state.activeSettings = data;
+  localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify(payload));
+  updateActiveSettingsLabel();
+  return { ok: true, data };
+}
+
 document.getElementById("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const statusEl = document.getElementById("settings-status");
@@ -87,24 +127,48 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
   const thresholdRaw = document.getElementById("threshold-input").value;
   const score_threshold = thresholdRaw === "" ? null : parseFloat(thresholdRaw);
 
-  const res = await fetch("/api/settings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ config_path, suppress_dilation, board_dilation, score_threshold }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    setStatus(statusEl, "Error: " + data.error, true);
+  const result = await applySettings({ config_path, suppress_dilation, board_dilation, score_threshold });
+  if (!result.ok) {
+    setStatus(statusEl, "Error: " + result.error, true);
     return;
   }
 
-  state.activeSettings = data;
-  setStatus(statusEl, `Model loaded in ${data.load_time}s.`);
-  updateActiveSettingsLabel();
+  setStatus(statusEl, `Model loaded in ${result.data.load_time}s.`);
   // Settings just apply to the *next* capture — they don't touch a result
   // that's already on screen.
   showScreen(postSettingsScreen());
 });
+
+// On startup, pre-fill the Setup form with whatever profile+settings were
+// last successfully applied (if any), so a page reload mid-shift doesn't
+// force re-picking the module and re-entering dilation/threshold values from
+// scratch. Deliberately does NOT auto-load the model or jump ahead to
+// Capture -- stays on Setup so the operator can change anything (or just
+// confirm) before committing to a model load. Falls back to a plain empty
+// Setup screen if there's nothing to restore or it no longer matches a real
+// profile (renamed/deleted config) -- a corrupted/stale localStorage value
+// must never break page load.
+function restoreLastSettings() {
+  const statusEl = document.getElementById("settings-status");
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(LAST_SETTINGS_KEY));
+  } catch {
+    saved = null;
+  }
+  if (!saved || !saved.config_path || !profiles.some((p) => p.config_path === saved.config_path)) {
+    showScreen("settings");
+    return;
+  }
+
+  document.getElementById("model-select").value = saved.config_path;
+  document.getElementById("dilation-input").value = saved.suppress_dilation;
+  document.getElementById("board-dilation-input").value = saved.board_dilation;
+  document.getElementById("threshold-input").value =
+    saved.score_threshold === null ? "" : saved.score_threshold;
+  setStatus(statusEl, "Restored last-used settings — review and click Start.");
+  showScreen("settings");
+}
 
 document.getElementById("settings-cancel-btn").addEventListener("click", () => {
   setStatus(document.getElementById("settings-status"), "");
@@ -609,9 +673,112 @@ document.getElementById("toggle-debug-btn").addEventListener("click", async () =
 });
 
 // ---------------------------------------------------------------------------
+// History screen
+// ---------------------------------------------------------------------------
+
+function formatTs(ts) {
+  // "20260731_113659_519011" -> "2026-07-31 11:36:59"
+  const m = ts.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : ts;
+}
+
+function renderHistoryCard(entry) {
+  const cls = entry.system_verdict === "NG" ? "ng" : entry.system_verdict === "OK" ? "ok" : "";
+  const thumb = entry.image_url
+    ? `<a href="${entry.image_url}" target="_blank"><img src="${entry.image_url}" alt="Result"></a>`
+    : `<div class="history-card-placeholder"></div>`;
+  const issuesText = entry.issues && entry.issues.length ? entry.issues.join(", ") : "";
+  return `<div class="panel history-card">
+    ${thumb}
+    <div class="history-card-meta">
+      <span class="badge ${cls}">${entry.system_verdict}</span>
+      <span class="status mono">${formatTs(entry.ts)}  |  ${entry.profile}  |  score ${entry.score.toFixed(2)}</span>
+      ${issuesText ? `<span class="status error">${issuesText}</span>` : ""}
+    </div>
+  </div>`;
+}
+
+async function loadHistory() {
+  const statusEl = document.getElementById("history-status");
+  const listEl = document.getElementById("history-list");
+  const profile = document.getElementById("history-profile-select").value;
+  setStatus(statusEl, "Loading...");
+
+  const res = await fetch(`/api/history?limit=20${profile ? "&profile=" + encodeURIComponent(profile) : ""}`);
+  const data = await res.json();
+  if (!res.ok) {
+    setStatus(statusEl, "Error: " + data.error, true);
+    return;
+  }
+
+  setStatus(statusEl, `Last ${data.entries.length} capture${data.entries.length === 1 ? "" : "s"}` +
+    (profile ? ` — ${profile}` : " — all modules"));
+  listEl.innerHTML = data.entries.length
+    ? data.entries.map(renderHistoryCard).join("")
+    : "";
+}
+
+document.getElementById("nav-history").addEventListener("click", () => {
+  const current = state.activeSettings ? state.activeSettings.profile : "";
+  document.getElementById("history-profile-select").value = current;
+  showScreen("history");
+  loadHistory();
+});
+
+document.getElementById("history-profile-select").addEventListener("change", loadHistory);
+
+document.getElementById("history-close-btn").addEventListener("click", () => {
+  showScreen(postSettingsScreen());
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard-driven capture loop
+// ---------------------------------------------------------------------------
+
+// Space/Enter always does "the next obvious thing" on the Capture/Result
+// screens (capture -> confirm/run inference -> capture another), so a
+// high-volume operator never has to reach for the mouse. Esc cancels/retakes.
+// Reads existing DOM .hidden flags as the sole source of truth -- same as
+// every button handler above -- rather than tracking parallel state.
+function handleCaptureLoopKey(e) {
+  if (e.repeat) return;                                    // ignore key-repeat while held
+  if (e.ctrlKey || e.altKey || e.metaKey) return;           // don't hijack OS/browser chords
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if (!screens.settings.hidden) return;                     // no shortcut behavior on Setup
+
+  if (e.code === "Escape") {
+    if (screens.capture.hidden) return;                     // only meaningful on Capture
+    e.preventDefault();
+    if (!document.getElementById("inference-progress").hidden) {
+      document.getElementById("cancel-inference-btn").click();      // cancel in-flight inference
+    } else if (!document.getElementById("roi-preview-wrap").hidden) {
+      document.getElementById("retake-btn").click();                // discard this capture, retake
+    } else if (!document.getElementById("capture-cancel-btn").hidden) {
+      document.getElementById("capture-cancel-btn").click();        // back out of Capture entirely
+    }
+    return;
+  }
+
+  if (e.code !== "Space" && e.code !== "Enter") return;
+  e.preventDefault();                                       // stop Space from scrolling
+
+  if (!screens.result.hidden) {
+    document.getElementById("capture-again-btn").click();
+  } else if (!screens.capture.hidden) {
+    if (!document.getElementById("roi-preview-wrap").hidden) {
+      document.getElementById("run-inference-btn").click();
+    } else if (!document.getElementById("capture-btn").hidden) {
+      document.getElementById("capture-btn").click();
+    }
+    // else: inference in progress -- no-op, don't interfere with the in-flight request
+  }
+}
+
+document.addEventListener("keydown", handleCaptureLoopKey);
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
 document.getElementById("dev-mode-toggle").checked = state.devMode;
-loadModels();
-showScreen("settings");
+loadModels().then(restoreLastSettings);
