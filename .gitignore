@@ -1,11 +1,15 @@
-# Pretrained backbone models (large)
-models/
+# Pretrained backbone models (large) -- .gitkeep keeps the empty folder itself
+# tracked so the intended structure shows up on a fresh clone/GitHub browse
+models/*
+!models/.gitkeep
 
 # Raw and processed dataset images
-data/
+data/*
+!data/.gitkeep
 
 # Trained PatchCore model weights
-results/IR_Module/
+results/IR_Module/*
+!results/IR_Module/.gitkeep
 
 # Calibration outputs
 calibrate_crop.jpg
@@ -32,8 +36,16 @@ results/yolo/CT11/
 results/heatmaps/
 
 # Live demo outputs
-captures/
-results/live/
+captures/*
+!captures/.gitkeep
+results/live/*
+!results/live/.gitkeep
+
+# Developer-mode logs and ground-truth review copies (grows continuously
+# from real usage -- not build output, but not something to version either)
+results/dev_review/
+results/inference_log.jsonl
+results/verification_log.jsonl
 
 # Misc
 .DS_Store
