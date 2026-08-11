@@ -5,8 +5,8 @@ calibrating per-class confidence thresholds (configs/<module>/live_config.yaml's
 yolo.class_conf) directly, without re-running the whole app or asking for help.
 
 Usage:
-  python check_yolo_confidence.py --config configs/CT11/Front/live_config.yaml --image captures/CT11/Front/<ts>_raw.jpg
-  python check_yolo_confidence.py --config configs/CT11/Front/live_config.yaml --image captures/CT11/Front/<ts>_raw.jpg --class resistor
+  python check_yolo_confidence.py --config configs/CT11_Power/Front/live_config.yaml --image captures/CT11_Power/Front/<ts>_raw.jpg
+  python check_yolo_confidence.py --config configs/CT11_Power/Front/live_config.yaml --image captures/CT11_Power/Front/<ts>_raw.jpg --class resistor
 """
 import argparse
 import os

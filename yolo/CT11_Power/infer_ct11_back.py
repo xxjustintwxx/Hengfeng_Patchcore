@@ -1,15 +1,15 @@
 """
-CT11 Back inspection: YOLOv11-seg + PatchCore heatmap.
+CT11_Power Back inspection: YOLOv11-seg + PatchCore heatmap.
 
 Classes (4):  0=board  1=component  2=connector  3=resistor
 Expected:     —        1            1             61
 
 Usage:
   # Single image
-  python yolo/infer_ct11_back.py --image data/CT11/Back/ir_module_1024/ir_module/test/good/IMG-37.jpg
+  python yolo/infer_ct11_back.py --image data/CT11_Power/Back/ir_module_1024/ir_module/test/good/IMG-37.jpg
 
   # Full test folder, save heatmaps
-  python yolo/infer_ct11_back.py --image_dir data/CT11/Back/ir_module_1024/ir_module/test/good --save
+  python yolo/infer_ct11_back.py --image_dir data/CT11_Power/Back/ir_module_1024/ir_module/test/good --save
 """
 import sys
 from pathlib import Path
@@ -20,10 +20,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import infer_pcb
 
-# ── CT11 Back overrides ────────────────────────────────────────────────────────
-infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11/Back/pcb_seg/weights/best.pt"
-infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11/CT11_Back_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
-infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11/Back"
+# ── CT11_Power Back overrides ────────────────────────────────────────────────────────
+infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11_Power/Back/pcb_seg/weights/best.pt"
+infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11_Power/CT11_Power_Back_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11_Power/Back"
 
 infer_pcb.CLASS_NAMES = ["board", "component", "connector", "resistor"]
 
@@ -49,7 +49,7 @@ infer_pcb.CLASS_CONF = {
     3: 0.40,   # resistor — raised to reduce false detections
 }
 
-infer_pcb.SUPPRESS_CLASSES     = set()   # no suppression for CT11 Back
+infer_pcb.SUPPRESS_CLASSES     = set()   # no suppression for CT11_Power Back
 infer_pcb.SUPPRESS_DILATION_PX = 0
 infer_pcb.CLASS_NMS_IOU        = {}
 

@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=ct11_front_pc
-#SBATCH --partition=normal2
+#SBATCH --job-name=ct11_front_infer
+#SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=0-04:00:00
+#SBATCH --time=0-01:00:00
 #SBATCH --output=/work/xxjustin77xx/results/job_log/job-%j.out
 #SBATCH --error=/work/xxjustin77xx/results/job_log/job-%j.err
 #SBATCH --mail-type=END,FAIL
@@ -40,34 +40,16 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-echo "=== PatchCore CT11 Front (1024, WR50 L2-3, coreset m4 p=0.1) ==="
-echo "Train: 36 good images"
-
-python bin/run_patchcore.py \
-  --gpu 0 \
-  --seed 0 \
-  --save_patchcore_model \
-  --log_group CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1 \
-  --log_project IR_Module/CT11 \
-  results \
-  patch_core \
-    -b wideresnet50 \
-    -le layer2 \
-    -le layer3 \
-    --pretrain_embed_dimension 1024 \
-    --target_embed_dimension 1024 \
-    --anomaly_scorer_num_nn 1 \
-    --patchsize 3 \
-  sampler \
-    -p 0.1 \
-    approx_greedy_coreset \
-  dataset \
-    --resize 1024 \
-    --imagesize 1024 \
-    --batch_size 1 \
-    --num_workers 4 \
-    -d ir_module \
-    mvtec "data/CT11/Front/ir_module_1024"
+echo "=== CT11 Front Inspection: test/defect ==="
+python yolo/CT11_Power/infer_ct11_front.py \
+  --image_dir data/CT11_Power/Front/ir_module_1024/ir_module/test/defect \
+  --save
 
 echo ""
-echo "=== Done. Model at results/IR_Module/CT11/CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1/ ==="
+echo "=== CT11 Front Inspection: test/good ==="
+python yolo/CT11_Power/infer_ct11_front.py \
+  --image_dir data/CT11_Power/Front/ir_module_1024/ir_module/test/good \
+  --save
+
+echo ""
+echo "=== Done. Heatmaps at results/heatmaps/CT11_Power/Front/ ==="

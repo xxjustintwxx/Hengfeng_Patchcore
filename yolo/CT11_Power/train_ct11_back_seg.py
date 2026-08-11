@@ -1,15 +1,14 @@
 """
-YOLOv11-seg training script for CT11 Front PCB component segmentation.
+YOLOv11-seg training script for CT11_Power Back PCB component segmentation.
 
-Classes (5):
-  0: Main IC      — expected count: 1
-  1: board        — full PCB outline (used for PatchCore heatmap masking)
-  2: component    — expected count: 6
-  3: connector    — expected count: 2
-  4: resistor     — expected count: 21
+Classes (4):
+  0: board      — full PCB outline (used for PatchCore heatmap masking)
+  1: component  — expected count: 1
+  2: connector  — expected count: 1
+  3: resistor   — expected count: 61
 
-Trained weights land at:  models/yolo/CT11/Front/pcb_seg/weights/best.pt
-Training logs land at:    results/yolo/CT11/Front/
+Trained weights land at:  models/yolo/CT11_Power/Back/pcb_seg/weights/best.pt
+Training logs land at:    results/yolo/CT11_Power/Back/
 """
 import shutil
 from pathlib import Path
@@ -18,11 +17,11 @@ from ultralytics import YOLO
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 ROOT        = Path(__file__).resolve().parent.parent.parent
-DATA_YAML   = ROOT / "data" / "CT11" / "Front" / "CT11 front_padded" / "data.yaml"
+DATA_YAML   = ROOT / "data" / "CT11_Power" / "Back" / "CT11 back_padded" / "data.yaml"
 PRETRAINED  = ROOT / "models" / "yolo" / "yolo11s-seg.pt"
-WEIGHTS_DIR = ROOT / "models" / "yolo" / "CT11" / "Front" / "pcb_seg" / "weights"
-RESULTS_DIR = ROOT / "results" / "yolo" / "CT11" / "Front"
-RUN_NAME    = "ct11_front_seg_1280_s"
+WEIGHTS_DIR = ROOT / "models" / "yolo" / "CT11_Power" / "Back" / "pcb_seg" / "weights"
+RESULTS_DIR = ROOT / "results" / "yolo" / "CT11_Power" / "Back"
+RUN_NAME    = "ct11_back_seg_1280_s"
 
 # ── Download base weights if not present ───────────────────────────────────────
 if not PRETRAINED.exists():
@@ -56,13 +55,11 @@ model.train(
     weight_decay = 0.0005,
     warmup_epochs = 10,
 
-    # ── Augmentation — toned down for dense small objects (21 resistors) ─────────
-    # High rotation + mosaic destroys positional consistency, causing the model
-    # to learn only 1-2 fixed-position resistors and ignore the other 19.
-    degrees   = 10.0,          # was 45 — PCBs on inspection line stay roughly aligned
+    # ── Augmentation — toned down for dense small objects (61 resistors) ─────────
+    degrees   = 10.0,
     translate = 0.03,   # reduced from 0.1 — board bottom near image edge; large translate pushes it off-screen and degrades boundary prediction
-    scale     = 0.2,           # was 0.5 — camera at fixed distance, little zoom variation
-    shear     = 2.0,           # was 5.0
+    scale     = 0.2,
+    shear     = 2.0,
     perspective = 0.0005,
     flipud    = 0.5,
     fliplr    = 0.5,
@@ -71,12 +68,12 @@ model.train(
     hsv_s = 0.7,
     hsv_v = 0.4,
 
-    mosaic     = 0.3,          # was 1.0 — sparse mosaic; most images train clean
+    mosaic     = 0.3,
     mixup      = 0.15,
     copy_paste = 0.3,
-    erasing    = 0.2,          # was 0.4
+    erasing    = 0.2,
 
-    close_mosaic = 80,         # was 30 — stop mosaic earlier, last 80 epochs on clean images
+    close_mosaic = 80,
     patience     = 150,
 
     save        = True,

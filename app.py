@@ -63,7 +63,7 @@ def inject_static_versioned():
 
 # Global, single-operator server state (no session/multi-client handling needed
 # for this local desktop tool). No profile is loaded at startup -- the user
-# picks one (640C, CT11/Front, CT11/Back, ...) on the Settings screen, which
+# picks one (640C, CT11_Power/Front, CT11_Power/Back, ...) on the Settings screen, which
 # loads its YOLO+PatchCore models and swaps STATE["cfg"] wholesale so camera/
 # ROI/output-dirs/class-taxonomy all switch together as one unit.
 STATE = {
@@ -100,7 +100,7 @@ def encode_jpeg_b64(bgr_img: np.ndarray) -> str:
 
 
 def _profile_label(config_path: str) -> str:
-    """Derive the human-readable profile label ("640C", "CT11/Front", ...) from
+    """Derive the human-readable profile label ("640C", "CT11_Power/Front", ...) from
     a live_config.yaml path -- the path relative to configs/ with the trailing
     /live_config.yaml stripped. Shared by discover_profiles() and
     api_settings() so every caller derives it identically."""
@@ -125,7 +125,7 @@ def discover_profiles():
     Each config fully determines one profile: camera, ROI, YOLO weights +
     class taxonomy, PatchCore model, output dirs. Label is the path relative
     to configs/ with the trailing /live_config.yaml stripped, e.g. "640C",
-    "CT11/Front", "CT11/Back".
+    "CT11_Power/Front", "CT11_Power/Back".
     """
     pattern = os.path.join(str(ROOT), "configs", "**", "live_config.yaml")
     found = []
@@ -565,7 +565,7 @@ def api_stats():
 
 
 def result_image_url(result_path):
-    """Translate a logged result_path (e.g. "./results/live/CT11/Front/
+    """Translate a logged result_path (e.g. "./results/live/CT11_Power/Front/
     <ts>_result.jpg", relative to ROOT) into a URL servable by
     serve_result_image() below. Returns None if result_path is missing or
     doesn't resolve under LIVE_RESULTS_DIR (e.g. save_result failed at
@@ -630,7 +630,7 @@ def main():
     args = parser.parse_args()
 
     # No profile is loaded at startup -- the Settings screen's "Start"/"Save"
-    # loads whichever profile (640C, CT11/Front, CT11/Back, ...) is selected.
+    # loads whichever profile (640C, CT11_Power/Front, CT11_Power/Back, ...) is selected.
     STATE["device_override"] = args.device
 
     app.run(host="127.0.0.1", port=args.port, debug=False, threaded=False)

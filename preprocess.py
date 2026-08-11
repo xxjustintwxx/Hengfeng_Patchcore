@@ -1,19 +1,19 @@
 """
 Preprocess raw images: crop ROI and resize to target resolution.
 
-Workflow (module-specific, e.g. CT11/Back):
-  1. Drop raw photos into data/CT11/Back/raw/ (rename to IMG-XX.jpg first)
+Workflow (module-specific, e.g. CT11_Power/Back):
+  1. Drop raw photos into data/CT11_Power/Back/raw/ (rename to IMG-XX.jpg first)
   2. Preview the ROI:
-       python preprocess.py --config configs/CT11/Back/preprocess_config.yaml \
-                            --calibrate data/CT11/Back/raw/IMG-01.jpg
+       python preprocess.py --config configs/CT11_Power/Back/preprocess_config.yaml \
+                            --calibrate data/CT11_Power/Back/raw/IMG-01.jpg
      → inspect calibrate_preview.jpg and calibrate_crop.jpg
   3. Adjust roi/output_size in the config, repeat step 2
   4. Batch process a split:
-       python preprocess.py --config configs/CT11/Back/preprocess_config.yaml \
-                            --module CT11/Back \
-                            --src data/CT11/Back/raw \
+       python preprocess.py --config configs/CT11_Power/Back/preprocess_config.yaml \
+                            --module CT11_Power/Back \
+                            --src data/CT11_Power/Back/raw \
                             --split train/good
-     → writes to data/CT11/Back/ir_module_1024/ir_module/train/good/
+     → writes to data/CT11_Power/Back/ir_module_1024/ir_module/train/good/
   5. Copy ground_truth masks manually if needed.
 
 Legacy (flat layout, 640C):
@@ -107,13 +107,13 @@ def batch_process(src: Path, dst: Path, roi, output_size, only_files=None):
 def main():
     parser = argparse.ArgumentParser(description="Preprocess raw IR module images for PatchCore")
     parser.add_argument("--calibrate", metavar="IMAGE", help="Preview ROI on a sample image")
-    parser.add_argument("--src",   metavar="PATH",  help="Source image or folder (e.g. data/CT11/Back/raw)")
+    parser.add_argument("--src",   metavar="PATH",  help="Source image or folder (e.g. data/CT11_Power/Back/raw)")
     parser.add_argument("--split", metavar="SPLIT", help="Dataset split subfolder (e.g. train/good, test/defect)")
     parser.add_argument("--files", metavar="FILE", nargs="+", help="Only process these filenames (from --src folder)")
     parser.add_argument("--config", default=str(CONFIG_PATH),
                         help="Path to preprocess config YAML (default: configs/640C/preprocess_config.yaml)")
     parser.add_argument("--module", metavar="MODULE/SIDE",
-                        help="Module sub-path for output (e.g. CT11/Back). "
+                        help="Module sub-path for output (e.g. CT11_Power/Back). "
                              "Output goes to data/<module>/ir_module_<W>/ir_module/<split>/. "
                              "Omit for legacy flat layout: data/ir_module_<W>/ir_module/<split>/")
     args = parser.parse_args()

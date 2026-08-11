@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=ct11_front_infer
+#SBATCH --job-name=ct11_back_infer
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -40,16 +40,10 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-echo "=== CT11 Front Inspection: test/defect ==="
-python yolo/CT11/infer_ct11_front.py \
-  --image_dir data/CT11/Front/ir_module_1024/ir_module/test/defect \
+echo "=== CT11 Back Inspection: test/good ==="
+python yolo/CT11_Power/infer_ct11_back.py \
+  --image_dir data/CT11_Power/Back/ir_module_1024/ir_module/test/good \
   --save
 
 echo ""
-echo "=== CT11 Front Inspection: test/good ==="
-python yolo/CT11/infer_ct11_front.py \
-  --image_dir data/CT11/Front/ir_module_1024/ir_module/test/good \
-  --save
-
-echo ""
-echo "=== Done. Heatmaps at results/heatmaps/CT11/Front/ ==="
+echo "=== Done. Heatmaps at results/heatmaps/CT11_Power/Back/ ==="

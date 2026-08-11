@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=MST114563
-#SBATCH --job-name=ct11_back_pc
+#SBATCH --job-name=ct11_front_pc
 #SBATCH --partition=normal2
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -40,15 +40,15 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-echo "=== PatchCore CT11 Back (1024, WR50 L2-3, coreset m4 p=0.1) ==="
+echo "=== PatchCore CT11_Power Front (1024, WR50 L2-3, coreset m4 p=0.1) ==="
 echo "Train: 36 good images"
 
 python bin/run_patchcore.py \
   --gpu 0 \
   --seed 0 \
   --save_patchcore_model \
-  --log_group CT11_Back_WR50_L2-3_PS3_1024_m4_p0.1 \
-  --log_project IR_Module/CT11 \
+  --log_group CT11_Power_Front_WR50_L2-3_PS3_1024_m4_p0.1 \
+  --log_project IR_Module/CT11_Power \
   results \
   patch_core \
     -b wideresnet50 \
@@ -67,7 +67,7 @@ python bin/run_patchcore.py \
     --batch_size 1 \
     --num_workers 4 \
     -d ir_module \
-    mvtec "data/CT11/Back/ir_module_1024"
+    mvtec "data/CT11_Power/Front/ir_module_1024"
 
 echo ""
-echo "=== Done. Model at results/IR_Module/CT11/CT11_Back_WR50_L2-3_PS3_1024_m4_p0.1/ ==="
+echo "=== Done. Model at results/IR_Module/CT11_Power/CT11_Power_Front_WR50_L2-3_PS3_1024_m4_p0.1/ ==="

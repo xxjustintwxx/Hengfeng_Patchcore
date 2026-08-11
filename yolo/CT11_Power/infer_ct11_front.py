@@ -1,16 +1,16 @@
 """
-CT11 Front inspection: YOLOv11-seg + PatchCore heatmap.
+CT11_Power Front inspection: YOLOv11-seg + PatchCore heatmap.
 
 Classes (5):  0=Main IC  1=board  2=component  3=connector  4=resistor
 Expected:     1          —        6             2            21
 
 Usage:
   # Single image
-  python yolo/infer_ct11_front.py --image data/CT11/Front/ir_module_1024/ir_module/test/defect/IMG-defect-01.jpg
+  python yolo/infer_ct11_front.py --image data/CT11_Power/Front/ir_module_1024/ir_module/test/defect/IMG-defect-01.jpg
 
   # Full test folder (good + defect), save heatmaps
-  python yolo/infer_ct11_front.py --image_dir data/CT11/Front/ir_module_1024/ir_module/test/defect --save
-  python yolo/infer_ct11_front.py --image_dir data/CT11/Front/ir_module_1024/ir_module/test/good  --save
+  python yolo/infer_ct11_front.py --image_dir data/CT11_Power/Front/ir_module_1024/ir_module/test/defect --save
+  python yolo/infer_ct11_front.py --image_dir data/CT11_Power/Front/ir_module_1024/ir_module/test/good  --save
 """
 import sys
 from pathlib import Path
@@ -21,10 +21,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import infer_pcb
 
-# ── CT11 Front overrides ───────────────────────────────────────────────────────
-infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11/Front/pcb_seg/weights/best.pt"
-infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11/CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
-infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11/Front"
+# ── CT11_Power Front overrides ───────────────────────────────────────────────────────
+infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11_Power/Front/pcb_seg/weights/best.pt"
+infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11_Power/CT11_Power_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11_Power/Front"
 
 infer_pcb.CLASS_NAMES = ["Main IC", "board", "component", "connector", "resistor"]
 
@@ -53,7 +53,7 @@ infer_pcb.CLASS_CONF = {
     4: 0.40,   # resistor — raised to reduce false detections
 }
 
-infer_pcb.SUPPRESS_CLASSES     = set()   # no suppression for CT11 Front
+infer_pcb.SUPPRESS_CLASSES     = set()   # no suppression for CT11_Power Front
 infer_pcb.SUPPRESS_DILATION_PX = 0
 infer_pcb.CLASS_NMS_IOU        = {}
 

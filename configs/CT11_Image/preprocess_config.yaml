@@ -1,0 +1,9 @@
+# CT11_Image module
+# Raw images: 2268x4032 (Pixel 6 portrait)
+# Starting ROI matches CT11_Power — calibrate with:
+#   python preprocess.py --config configs/CT11_Image/preprocess_config.yaml \
+#                        --calibrate data/CT11_Image/raw/IMG-01.jpg
+# Inspect calibrate_preview.jpg (green box) and calibrate_crop.jpg, then adjust.
+preprocessing:
+  roi: [700, 1500, 900, 900]
+  output_size: [1024, 1024]

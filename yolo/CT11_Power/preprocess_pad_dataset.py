@@ -7,8 +7,8 @@ The board boundary is no longer at the image edge, giving YOLO background contex
 to predict it accurately.  Label coordinates are shifted proportionally.
 
 Output folders:
-  data/CT11/Front/CT11 front_padded/
-  data/CT11/Back/CT11 back_padded/
+  data/CT11_Power/Front/CT11 front_padded/
+  data/CT11_Power/Back/CT11 back_padded/
 """
 from pathlib import Path
 import numpy as np
@@ -19,14 +19,14 @@ PAD  = 128   # pixels added on each side
 
 SIDES = [
     {
-        "src":   ROOT / "data/CT11/Front/CT11 front",
-        "dst":   ROOT / "data/CT11/Front/CT11 front_padded",
+        "src":   ROOT / "data/CT11_Power/Front/CT11 front",
+        "dst":   ROOT / "data/CT11_Power/Front/CT11 front_padded",
         "nc":    5,
         "names": "['Main IC', 'board', 'component', 'connector', 'resistor']",
     },
     {
-        "src":   ROOT / "data/CT11/Back/CT11 back",
-        "dst":   ROOT / "data/CT11/Back/CT11 back_padded",
+        "src":   ROOT / "data/CT11_Power/Back/CT11 back",
+        "dst":   ROOT / "data/CT11_Power/Back/CT11 back_padded",
         "nc":    4,
         "names": "['board', 'component', 'connector', 'resistor']",
     },
