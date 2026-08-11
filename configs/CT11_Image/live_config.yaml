@@ -57,6 +57,6 @@ inference:
   score_threshold: 190.0  # placeholder — calibrate after seeing scores
 
 output:
-  patchcore_model: "results/IR_Module/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+  patchcore_model: "models/patchcore/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
   captures_dir: "./captures/CT11_Image"      # raw phone photos, timestamped
   heatmaps_dir: "./results/live/CT11_Image"  # 3-panel result images, timestamped

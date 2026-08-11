@@ -40,7 +40,7 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-M4_512="results/IR_Module/ir_module_WR50_L2-3_PS3_512_m4_p0.1/models/mvtec_ir_module"
+M4_512="models/patchcore/640C/ir_module_WR50_L2-3_PS3_512_m4_p0.1/models/mvtec_ir_module"
 
 echo "=== Model4 512: good (ws + ns boards) ==="
 python yolo/640C/infer_pcb.py \

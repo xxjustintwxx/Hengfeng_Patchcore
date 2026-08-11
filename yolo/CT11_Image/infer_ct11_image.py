@@ -23,7 +23,7 @@ import infer_pcb
 
 # ── CT11_Image overrides ───────────────────────────────────────────────────────
 infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11_Image/pcb_seg/weights/best.pt"
-infer_pcb.PATCHCORE_PATH = ROOT / "results/IR_Module/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+infer_pcb.PATCHCORE_PATH = ROOT / "models/patchcore/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
 infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11_Image"
 
 infer_pcb.CLASS_NAMES = ["Main IC", "board", "component", "connector", "resistor", "screw"]

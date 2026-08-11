@@ -759,7 +759,7 @@ def main():
     parser.add_argument(
         "--model_path", required=True,
         help="Path to dir containing patchcore_params.pkl "
-             "(e.g. results/IR_Module/<log_group>/models/mvtec_ir_module)"
+             "(e.g. models/patchcore/<module>/<log_group>/models/mvtec_ir_module)"
     )
     parser.add_argument(
         "--config", default="configs/640C/live_config.yaml",

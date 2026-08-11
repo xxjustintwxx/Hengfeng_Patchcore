@@ -3,7 +3,7 @@ Load saved PatchCore model and generate side-by-side heatmaps for test images.
 
 Usage (from Hengfeng_Patchcore/):
   python test_patchcore_heatmap.py
-  python test_patchcore_heatmap.py --model_path results/IR_Module/.../models/mvtec_ir_module
+  python test_patchcore_heatmap.py --model_path models/patchcore/<module>/.../models/mvtec_ir_module
 """
 import argparse
 import os
@@ -183,7 +183,7 @@ def main():
     print(f"Loading model from: {model_path}")
 
     # Derive output dir and resolution from log_group name
-    # model_path is like: results/IR_Module/<log_group>/models/mvtec_ir_module
+    # model_path is like: models/patchcore/<module>/<log_group>/models/mvtec_ir_module
     log_group = Path(model_path).parts[-3]
     output_dir = os.path.join("results", "heatmaps", log_group)
 

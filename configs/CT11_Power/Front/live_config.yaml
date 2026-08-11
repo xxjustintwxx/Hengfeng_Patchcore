@@ -56,6 +56,6 @@ inference:
   score_threshold: 200.0
 
 output:
-  patchcore_model: "results/IR_Module/CT11_Power/CT11_Power_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+  patchcore_model: "models/patchcore/CT11_Power/CT11_Power_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
   captures_dir: "./captures/CT11_Power/Front"      # raw phone photos, timestamped
   heatmaps_dir: "./results/live/CT11_Power/Front"  # 3-panel result images, timestamped

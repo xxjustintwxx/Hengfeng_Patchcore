@@ -39,6 +39,6 @@ inference:
   score_threshold: null
 
 output:
-  patchcore_model: "results/IR_Module/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+  patchcore_model: "models/patchcore/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
   captures_dir: "./captures/640C"      # raw phone photos, timestamped
   heatmaps_dir: "./results/live/640C"  # 3-panel result images, timestamped

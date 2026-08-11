@@ -58,8 +58,8 @@ python bin/run_patchcore.py \
   --seed 0 \
   --save_patchcore_model \
   --log_group ir_module_WR50_L2-3_PS3_1024_m4_p0.1 \
-  --log_project IR_Module \
-  results \
+  --log_project 640C \
+  models/patchcore \
   patch_core \
     -b wideresnet50 \
     -le layer2 \
@@ -80,4 +80,4 @@ python bin/run_patchcore.py \
     mvtec "data/ir_module_1024"
 
 echo ""
-echo "=== Done. Model at results/IR_Module/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/ ==="
+echo "=== Done. Model at models/patchcore/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/ ==="

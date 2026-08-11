@@ -7,10 +7,6 @@ models/*
 data/*
 !data/.gitkeep
 
-# Trained PatchCore model weights
-results/IR_Module/*
-!results/IR_Module/.gitkeep
-
 # Calibration outputs
 calibrate_crop.jpg
 calibrate_preview.jpg

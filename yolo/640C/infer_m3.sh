@@ -40,7 +40,7 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-M3="results/IR_Module/ir_module_WR50_L2-3_PS3_1024_colorjitter_p0.1/models/mvtec_ir_module"
+M3="models/patchcore/640C/ir_module_WR50_L2-3_PS3_1024_colorjitter_p0.1/models/mvtec_ir_module"
 
 echo "=== Model3 (colorjitter, no rotation, p=0.1): defect (defect-01 to 13) ==="
 python yolo/640C/infer_pcb.py \

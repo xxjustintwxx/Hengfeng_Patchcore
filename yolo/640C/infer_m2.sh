@@ -40,7 +40,7 @@ conda activate aoi
 
 cd /work/xxjustin77xx/Hengfeng_Patchcore
 
-M2="results/IR_Module/ir_module_WR50_L2-3_PS3_1024/models/mvtec_ir_module"
+M2="models/patchcore/640C/ir_module_WR50_L2-3_PS3_1024/models/mvtec_ir_module"
 
 echo "=== Model2 (no aug, p=1.0): defect (defect-01 to 13) ==="
 python yolo/640C/infer_pcb.py \

@@ -85,7 +85,7 @@ STATE = {
 
 RESULTS_DIR = os.path.join(str(ROOT), "results")
 # Narrower than RESULTS_DIR on purpose: RESULTS_DIR also holds the JSONL logs,
-# dev_review/ copies, and IR_Module/ (the actual trained PatchCore weights) --
+# dev_review/ copies, and patchcore/ (the actual trained PatchCore weights) --
 # only results/live/**/*_result.jpg needs to be web-servable.
 LIVE_RESULTS_DIR = os.path.join(RESULTS_DIR, "live")
 

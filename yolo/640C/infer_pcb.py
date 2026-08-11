@@ -41,7 +41,7 @@ import patchcore.patchcore
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 YOLO_WEIGHTS   = ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"
-PATCHCORE_PATH = ROOT / "results/IR_Module/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+PATCHCORE_PATH = ROOT / "models/patchcore/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
 OUTPUT_BASE    = ROOT / "results/yolo/640C/pcb_inspection"
 
 CLASS_NAMES    = ["Main IC", "connector", "resistor", "screw"]

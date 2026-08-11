@@ -48,8 +48,8 @@ python bin/run_patchcore.py \
   --seed 0 \
   --save_patchcore_model \
   --log_group CT11_Power_Back_WR50_L2-3_PS3_1024_m4_p0.1 \
-  --log_project IR_Module/CT11_Power \
-  results \
+  --log_project CT11_Power \
+  models/patchcore \
   patch_core \
     -b wideresnet50 \
     -le layer2 \
@@ -70,4 +70,4 @@ python bin/run_patchcore.py \
     mvtec "data/CT11_Power/Back/ir_module_1024"
 
 echo ""
-echo "=== Done. Model at results/IR_Module/CT11_Power/CT11_Power_Back_WR50_L2-3_PS3_1024_m4_p0.1/ ==="
+echo "=== Done. Model at models/patchcore/CT11_Power/CT11_Power_Back_WR50_L2-3_PS3_1024_m4_p0.1/ ==="

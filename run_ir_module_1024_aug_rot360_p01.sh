@@ -14,7 +14,7 @@ python bin/run_patchcore.py \
   --seed 0 \
   --save_patchcore_model \
   --log_group ir_module_WR50_L2-3_PS3_1024_aug_rot360_p0.1 \
-  --log_project IR_Module \
+  --log_project 640C \
   "$RESULTS_PATH" \
   patch_core \
     -b wideresnet50 \

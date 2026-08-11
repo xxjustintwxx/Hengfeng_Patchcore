@@ -6,7 +6,7 @@ then times inference on all original test images with both index types.
 
 Usage:
   python time_inference.py
-  python time_inference.py --model_path results/IR_Module/.../models/mvtec_ir_module
+  python time_inference.py --model_path models/patchcore/<module>/.../models/mvtec_ir_module
   python time_inference.py --nprobe 32
 """
 import argparse
