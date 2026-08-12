@@ -35,9 +35,9 @@ yolo:
   class_conf:            # per-class confidence override (must be >= conf)
     0: 0.25              # Main IC
     1: 0.50              # board
-    2: 0.25              # component
+    2: 0.50              # component
     3: 0.25              # connector
-    4: 0.40              # resistor
+    4: 0.50              # resistor
     5: 0.25              # screw
   expected_counts:       # exact component count check — NG if any mismatch
     0: 2                 # Main IC
@@ -45,16 +45,29 @@ yolo:
     3: 1                 # connector
     4: 40                # resistor
     5: 1                 # screw
-  suppress_classes: []   # no PatchCore-heatmap suppression for CT11_Image
+  suppress_classes: [5]  # screw — suppressed from PatchCore heatmap, same as 640C
   class_nms_iou: {}      # no per-class post-NMS overrides for CT11_Image
-  suppress_dilation: 0
+  suppress_dilation: 20
+  # NMS/masking tunables -- calibrate these against real captures via the debug
+  # panel's drop_reason (it names which of these fired). Defaults if omitted
+  # are the same values baked into live_infer.py, so this is optional.
+  cross_class_nms_iou: 0.50       # class-agnostic IoU above which a lower-confidence
+                                   # different-class box is dropped for overlapping a
+                                   # higher-confidence one
+  containment_thresh: 0.10        # mask-overlap ratio (relative to the smaller
+                                   # detection's own area) above which a smaller
+                                   # different-class detection sitting inside a bigger
+                                   # one gets dropped (e.g. spurious resistor on Main IC)
+  off_board_overlap_thresh: 0.20  # fraction of a non-board detection's own mask that
+                                   # must fall inside the board outline to be trusted
+                                   # (board-masking profiles only)
   board_class: "board"   # class name whose segmented outline masks the heatmap
   board_dilation: 20     # expand board mask outward by this many px before masking
   board_pad: 128         # gray-border pad before YOLO (models trained on padded images)
 
 inference:
   device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
-  score_threshold: 190.0  # placeholder — calibrate after seeing scores
+  score_threshold: 200.0  # placeholder — calibrate after seeing scores
 
 output:
   patchcore_model: "models/patchcore/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"

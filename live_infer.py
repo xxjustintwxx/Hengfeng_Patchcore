@@ -55,19 +55,20 @@ CROSS_CLASS_NMS_IOU = 0.5       # class-agnostic: when two DIFFERENT-class boxes
                                 # overlap this much (e.g. a connector and a
                                 # spurious Main IC both firing on the same
                                 # physical part), keep only the higher-confidence one
-CONTAINMENT_THRESH  = 0.03      # class-agnostic mask-overlap ratio (relative to the
+CONTAINMENT_THRESH  = 0.10      # class-agnostic mask-overlap ratio (relative to the
                                 # smaller mask's own area) above which a DIFFERENT-
                                 # class detection is treated as sitting on top of a
                                 # bigger one (e.g. a spurious resistor on the Main
                                 # IC's die) and dropped -- the container always wins.
-                                # Deliberately low: a real resistor's mask still
-                                # touches Main IC's mask at ~0.7% (edge-pixel noise
-                                # between two independently-thresholded masks), while
-                                # a resistor actually sitting on the die measured ~6%
-                                # -- this sits with margin above the noise floor and
-                                # below the confirmed-false case, but is based on a
-                                # small sample; watch for it needing another look as
-                                # more captures come in.
+                                # Originally set to 0.03 (edge-pixel noise between two
+                                # independently-thresholded masks measured ~0.7%, a
+                                # confirmed resistor-on-die case measured ~6%), but
+                                # real CT11_Image captures showed genuinely separate,
+                                # correctly-detected components getting dropped at
+                                # that level -- raised to sit above the confirmed
+                                # true-positive case instead of just above the noise
+                                # floor. Still based on a small sample; keep watching
+                                # as more captures come in.
 OFF_BOARD_OVERLAP_THRESH = 0.5  # (board-masking profiles only) fraction of a
                                 # non-board detection's own mask that must fall
                                 # inside the board outline to be trusted -- a real
@@ -118,10 +119,29 @@ def bgr_to_tensor(bgr_img: np.ndarray, resize: int, cropsize: int) -> torch.Tens
 # YOLO helpers
 # ---------------------------------------------------------------------------
 
-def _per_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
-                   cls_ids: np.ndarray, iou_thresholds: dict) -> np.ndarray:
+def _iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
+    xa1, ya1, xa2, ya2 = box_a
+    xb1, yb1, xb2, yb2 = box_b
+    x1, y1 = max(xa1, xb1), max(ya1, yb1)
+    x2, y2 = min(xa2, xb2), min(ya2, yb2)
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    inter = (x2 - x1) * (y2 - y1)
+    area_a = (xa2 - xa1) * (ya2 - ya1)
+    area_b = (xb2 - xb1) * (yb2 - yb1)
+    return inter / (area_a + area_b - inter)
+
+
+def _per_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray, cls_ids: np.ndarray,
+                   iou_thresholds: dict):
+    """Returns (keep, suppressed_by): suppressed_by maps a dropped detection's
+    index to the index of the same-class, higher-confidence detection that
+    suppressed it (for debug-panel reporting -- best-effort nearest match,
+    since torchvision's nms doesn't expose the winner/loser pairing directly).
+    """
     from torchvision.ops import nms as tv_nms
     keep = np.ones(len(cls_ids), dtype=bool)
+    suppressed_by = {}
     for cls_id, iou_thr in iou_thresholds.items():
         idx = np.where(cls_ids == cls_id)[0]
         if len(idx) <= 1:
@@ -133,21 +153,33 @@ def _per_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
         ).numpy()
         keep[idx] = False
         keep[idx[kept_local]] = True
-    return keep
+        survivors = idx[kept_local]
+        for i in idx:
+            if keep[i]:
+                continue
+            best_j, best_conf = None, -1.0
+            for j in survivors:
+                if confs[j] > best_conf and _iou(boxes_xyxy[i], boxes_xyxy[j]) >= iou_thr:
+                    best_j, best_conf = j, confs[j]
+            if best_j is not None:
+                suppressed_by[i] = best_j
+    return keep, suppressed_by
 
 
 def _cross_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
-                     keep_mask: np.ndarray, iou_threshold: float) -> np.ndarray:
+                     keep_mask: np.ndarray, iou_threshold: float):
     """Suppress lower-confidence boxes that heavily overlap a higher-confidence
     box of a DIFFERENT class. torchvision's nms doesn't look at class at all,
     so running it across every surviving box (regardless of class) is exactly
     class-agnostic dedup: only the highest-confidence box in each overlapping
     cluster survives. Only boxes that already passed _per_class_nms are considered.
+
+    Returns (keep, suppressed_by) -- see _per_class_nms for suppressed_by's shape.
     """
     from torchvision.ops import nms as tv_nms
     idx = np.where(keep_mask)[0]
     if len(idx) <= 1:
-        return keep_mask
+        return keep_mask, {}
     kept_local = tv_nms(
         torch.tensor(boxes_xyxy[idx], dtype=torch.float32),
         torch.tensor(confs[idx],      dtype=torch.float32),
@@ -155,11 +187,22 @@ def _cross_class_nms(boxes_xyxy: np.ndarray, confs: np.ndarray,
     ).numpy()
     new_keep = np.zeros_like(keep_mask)
     new_keep[idx[kept_local]] = True
-    return new_keep
+    survivors = idx[kept_local]
+    suppressed_by = {}
+    for i in idx:
+        if new_keep[i]:
+            continue
+        best_j, best_conf = None, -1.0
+        for j in survivors:
+            if confs[j] > best_conf and _iou(boxes_xyxy[i], boxes_xyxy[j]) >= iou_threshold:
+                best_j, best_conf = j, confs[j]
+        if best_j is not None:
+            suppressed_by[i] = best_j
+    return new_keep, suppressed_by
 
 
 def _containment_nms(boxes_xyxy: np.ndarray, masks: np.ndarray, cls_ids: np.ndarray,
-                     keep_mask: np.ndarray, board_class_id, containment_thresh: float) -> np.ndarray:
+                     keep_mask: np.ndarray, board_class_id, containment_thresh: float):
     """Suppress a small mask that sits almost entirely INSIDE a much bigger
     mask of a DIFFERENT class (e.g. a spurious resistor detected on top of
     the Main IC's die). _cross_class_nms's IoU metric misses this: a tiny
@@ -179,11 +222,15 @@ def _containment_nms(boxes_xyxy: np.ndarray, masks: np.ndarray, cls_ids: np.ndar
     The board class is excluded, since every real component legitimately
     sits inside the board's own footprint -- checking against it would
     suppress everything.
+
+    Returns (keep, suppressed_by) -- suppressed_by maps a dropped detection's
+    index to the index of the container detection that suppressed it.
     """
     keep  = keep_mask.copy()
     idx   = np.where(keep_mask)[0]
     idx   = idx[cls_ids[idx] != board_class_id]
     areas = masks[idx].reshape(len(idx), -1).sum(axis=1)
+    suppressed_by = {}
     for a in range(len(idx)):
         i = idx[a]
         if not keep[i]:
@@ -201,8 +248,10 @@ def _containment_nms(boxes_xyxy: np.ndarray, masks: np.ndarray, cls_ids: np.ndar
                 continue
             inter = np.logical_and(masks[i], masks[j]).sum()
             if inter / min(area_i, area_j) >= containment_thresh:
-                keep[i if area_i < area_j else j] = False
-    return keep
+                loser, winner = (i, j) if area_i < area_j else (j, i)
+                keep[loser] = False
+                suppressed_by[loser] = winner
+    return keep, suppressed_by
 
 
 def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
@@ -270,7 +319,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     class_conf = {int(k): v for k, v in cfg_yolo.get("class_conf", {}).items()}
     expected   = {int(k): v for k, v in cfg_yolo.get("expected_counts", {}).items()}
 
-    # Class taxonomy differs per module/side (e.g. CT11 Front/Back have
+    # Class taxonomy differs per module/side (e.g. CT11_Power Front/Back have
     # different classes than 640C) -- config-driven with the historical 640C
     # values as defaults, so configs that don't define these behave exactly
     # as before.
@@ -280,7 +329,14 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     suppress_classes = set(cfg_yolo.get("suppress_classes", SUPPRESS_CLASSES))
     class_nms_iou    = {int(k): v for k, v in cfg_yolo.get("class_nms_iou", CLASS_NMS_IOU).items()}
 
-    # Board-outline masking (CT11): YOLO segments the PCB's own outline, and
+    # NMS/masking tunables -- all overridable per-profile so they can be
+    # calibrated against real captures without touching code (Settings page
+    # already exposes board_dilation/suppress_dilation the same way).
+    cross_class_nms_iou      = cfg_yolo.get("cross_class_nms_iou", CROSS_CLASS_NMS_IOU)
+    containment_thresh       = cfg_yolo.get("containment_thresh", CONTAINMENT_THRESH)
+    off_board_overlap_thresh = cfg_yolo.get("off_board_overlap_thresh", OFF_BOARD_OVERLAP_THRESH)
+
+    # Board-outline masking (CT11_Power / CT11_Image): YOLO segments the PCB's own outline, and
     # everything OUTSIDE it gets suppressed from the PatchCore heatmap (the
     # opposite of suppress_classes, which suppresses INSIDE a mask). The
     # models were retrained on gray-bordered images to fix boundary-prediction
@@ -307,14 +363,25 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     component_mask  = np.zeros((H, W), dtype=bool)
     board_found     = False
 
-    nms_keep  = np.ones(0, dtype=bool)
-    all_masks = None
+    nms_keep    = np.ones(0, dtype=bool)
+    drop_reason = []
+    all_masks   = None
     if yolo_res.boxes is not None:
         cls_ids    = yolo_res.boxes.cls.cpu().numpy().astype(int)
         confs      = yolo_res.boxes.conf.cpu().numpy()
         boxes_xyxy = yolo_res.boxes.xyxy.cpu().numpy()
-        nms_keep   = _per_class_nms(boxes_xyxy, confs, cls_ids, class_nms_iou)
-        nms_keep   = _cross_class_nms(boxes_xyxy, confs, nms_keep, CROSS_CLASS_NMS_IOU)
+        drop_reason = [None] * len(cls_ids)
+
+        nms_keep, suppressed_by = _per_class_nms(boxes_xyxy, confs, cls_ids, class_nms_iou)
+        for i, j in suppressed_by.items():
+            drop_reason[i] = (f"duplicate {class_names[cls_ids[i]]} detection -- overlaps a "
+                              f"higher-confidence {class_names[cls_ids[j]]} detection "
+                              f"(conf={confs[j]:.2f}) above the per-class NMS IoU threshold")
+
+        nms_keep, suppressed_by = _cross_class_nms(boxes_xyxy, confs, nms_keep, cross_class_nms_iou)
+        for i, j in suppressed_by.items():
+            drop_reason[i] = (f"overlaps a higher-confidence {class_names[cls_ids[j]]} detection "
+                              f"(conf={confs[j]:.2f}) -- cross-class NMS, IoU ≥ {cross_class_nms_iou:.2f}")
 
         if yolo_res.masks is not None:
             masks_data = yolo_res.masks.data.cpu().numpy()
@@ -334,8 +401,12 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
             for i, mask_raw in enumerate(masks_data):
                 mask_crop = mask_raw[crop_y0:crop_y1, crop_x0:crop_x1] if board_pad > 0 else mask_raw
                 all_masks[i] = cv2.resize(mask_crop, (W, H), interpolation=cv2.INTER_NEAREST) > 0.5
-            nms_keep = _containment_nms(boxes_xyxy, all_masks, cls_ids, nms_keep,
-                                        board_class_id, CONTAINMENT_THRESH)
+            nms_keep, suppressed_by = _containment_nms(boxes_xyxy, all_masks, cls_ids, nms_keep,
+                                                       board_class_id, containment_thresh)
+            for i, j in suppressed_by.items():
+                drop_reason[i] = (f"contained inside a {class_names[cls_ids[j]]} detection "
+                                  f"(conf={confs[j]:.2f}) -- containment NMS, ≥ {containment_thresh:.0%} "
+                                  f"of this box's own area overlaps it")
 
     # Union masks of every kept, conf-passing detection into board_mask
     # (board class) / component_mask (everything else) -- done before
@@ -397,8 +468,12 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
                 if area == 0:
                     continue
                 overlap = np.logical_and(all_masks[i], board_mask).sum()
-                if overlap / area < OFF_BOARD_OVERLAP_THRESH:
+                ratio = overlap / area
+                if ratio < off_board_overlap_thresh:
                     nms_keep[i] = False
+                    drop_reason[i] = (f"mostly outside the detected board outline "
+                                      f"({ratio:.0%} of this box sits on-board, need "
+                                      f"≥ {off_board_overlap_thresh:.0%})")
 
     if yolo_res.boxes is not None:
         for cls_id, conf, keep in zip(cls_ids, confs, nms_keep):
@@ -430,6 +505,9 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     # important case, e.g. a required component reading 0 entirely), and
     # nothing here is filtered by class_conf/nms_keep -- those are reported as
     # flags (pass_threshold, nms_kept) so callers can see the full picture.
+    # drop_reason explains *why* nms_kept is False -- which of the 4 filtering
+    # stages (per-class NMS, cross-class NMS, containment NMS, off-board
+    # rejection) dropped it and, where applicable, which other detection did it.
     raw_detections = {name: [] for name in class_names}
     if yolo_res.boxes is not None:
         for i, cls_id in enumerate(cls_ids):
@@ -441,6 +519,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
                 "box": [int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))],
                 "pass_threshold": bool(confs[i] >= class_conf.get(cls_id, yolo_conf)),
                 "nms_kept": bool(nms_keep[i]),
+                "drop_reason": drop_reason[i],
             })
         for dets in raw_detections.values():
             dets.sort(key=lambda d: d["conf"], reverse=True)

@@ -671,9 +671,20 @@ button:disabled:hover { background: transparent; border-color: var(--border-stro
 }
 
 .debug-det-row {
-  display: flex;
-  gap: 10px;
   padding: 3px 0;
+}
+
+.debug-det-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.debug-det-reason {
+  margin-top: 2px;
+  padding-left: 20px;
+  font-style: italic;
+  opacity: 0.85;
 }
 
 .debug-det-row.reject { color: var(--text-muted); }

@@ -63,7 +63,7 @@ async function loadModels() {
     select.appendChild(opt);
   }
 
-  // History's filter is keyed by profile *label* (e.g. "CT11/Front"), since
+  // History's filter is keyed by profile *label* (e.g. "CT11_Power/Front"), since
   // that's the field inference_log.jsonl entries are tagged with -- not
   // config_path, which #model-select above uses.
   const historySelect = document.getElementById("history-profile-select");
@@ -79,7 +79,7 @@ async function loadModels() {
 }
 
 // Switching modules should switch everything about them, including the
-// dilation/NG-threshold starting point -- otherwise picking CT11 while the
+// dilation/NG-threshold starting point -- otherwise picking CT11_Power while the
 // form still shows 640C's leftover values silently applies the wrong
 // threshold (each profile's own values were calibrated separately).
 function applyProfileDefaults() {
@@ -638,16 +638,27 @@ document.getElementById("verify-ng-btn").addEventListener("click", () => submitV
 
 function renderDebugDetections(detections) {
   return Object.entries(detections).map(([name, dets]) => {
-    const kept = dets.filter((d) => d.pass_threshold).length;
+    // A detection only actually counts toward detected_counts (and the verdict)
+    // when it BOTH clears the confidence threshold AND survives every NMS/
+    // off-board stage -- match that exactly here, rather than pass_threshold
+    // alone, so this header can't overstate what was really counted.
+    const counted = (d) => d.pass_threshold && d.nms_kept;
+    const kept = dets.filter(counted).length;
     const rows = dets.length
       ? dets.map((d) => {
-          const rowCls = d.pass_threshold ? "" : "reject";
-          const nmsNote = d.nms_kept ? "" : "  dropped by NMS";
+          const isCounted = counted(d);
+          const rowCls = isCounted ? "" : "reject";
+          const badge = isCounted ? "PASS  " : (d.pass_threshold ? "DROPPED" : "reject ");
+          const reasonLine = d.nms_kept
+            ? ""
+            : `<div class="debug-det-reason">↳ dropped — ${d.drop_reason || "NMS"}</div>`;
           return `<div class="debug-det-row ${rowCls}">` +
-            `<span>${d.pass_threshold ? "PASS  " : "reject"}</span>` +
-            `<span>conf=${d.conf.toFixed(4)}</span>` +
-            `<span>box=[${d.box.join(",")}]</span>` +
-            `<span>${nmsNote}</span>` +
+            `<div class="debug-det-main">` +
+              `<span>${badge}</span>` +
+              `<span>conf=${d.conf.toFixed(4)}</span>` +
+              `<span>box=[${d.box.join(",")}]</span>` +
+            `</div>` +
+            reasonLine +
           `</div>`;
         }).join("")
       : `<div class="debug-det-row">0 raw detections</div>`;

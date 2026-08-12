@@ -42,36 +42,40 @@ data/
       test/defect_type1/        # defect boards (no screw, _ns)
       test/defect_type2/        # defect boards (no screw, _ns, different defect type)
       ground_truth/             # pixel-level masks (blank = no annotation)
-  CT11/                         # CT11 module (new — to be populated)
+  CT11_Power/                   # CT11 power-side module (Front/Back)
     raw/
     ir_module_1024/
+  CT11_Image/                   # CT11 image-side module
 
 models/
   yolo/
-    640C/pcb_seg/weights/best.pt  # trained YOLOv11s-seg (small-1280) for 640C
-    CT11/                         # (to be trained)
-    yolo11s-seg.pt                # base weights used for YOLO training
+    640C/pcb_seg/weights/best.pt              # trained YOLOv11s-seg for 640C
+    CT11_Power/{Front,Back}/pcb_seg/weights/best.pt
+    CT11_Image/pcb_seg/weights/best.pt
+    yolo11s-seg.pt                            # base weights used for YOLO training
+  patchcore/
+    640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/          # ← current best PatchCore model
+    CT11_Power/CT11_{Front,Back}_WR50_L2-3_PS3_1024_m4_p0.1/
+    CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/
 
 results/
-  IR_Module/
-    640C/
-      ir_module_WR50_L2-3_PS3_1024_m4_p0.1/   # ← current best PatchCore model
-    CT11/
   live/
     640C/                       # live inference result images
-    CT11/
+    CT11_Power/{Front,Back}/
+    CT11_Image/
 
 configs/
   640C/
     preprocess_config.yaml      # ROI crop + output resolution
     live_config.yaml            # camera URL, YOLO weights, score threshold, output dirs
-  CT11/
+  CT11_Power/{Front,Back}/
+  CT11_Image/
 
 notes/
   640C/
     model_experiment_log.md     # full experiment history and score analysis
     patchcore_resolution_analysis.md
-  CT11/
+  CT11_Power/
 ```
 
 ### Image naming convention
@@ -118,9 +122,9 @@ python preprocess.py --src data/640C/raw --split train/good \
 python preprocess.py --src data/640C/raw --split test/defect \
   --files IMG-defect-27_ws.jpg
 
-# For CT11, pass its own config
-python preprocess.py --config configs/CT11/preprocess_config.yaml \
-  --src data/CT11/raw --split train/good
+# For CT11_Power, pass its own config
+python preprocess.py --config configs/CT11_Power/Front/preprocess_config.yaml \
+  --src data/CT11_Power/raw --split train/good
 ```
 
 ROI and output resolution are set in `configs/640C/preprocess_config.yaml`:
@@ -149,7 +153,7 @@ that already have `_aug_` in the name so it is safe to re-run.
 sbatch run_ir_module_1024_aug_rot360_p01.sh
 ```
 
-Model is saved under `results/IR_Module/640C/<log_group>/models/mvtec_ir_module/`.
+Model is saved under `models/patchcore/640C/<log_group>/models/mvtec_ir_module/`.
 
 ### 5. Batch inference (offline evaluation)
 
@@ -167,7 +171,7 @@ python yolo/infer_pcb.py \
 
 ```bash
 python live_infer.py \
-  --model_path results/IR_Module/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module
+  --model_path models/patchcore/640C/ir_module_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module
 ```
 
 Each Enter keypress captures one frame from the phone camera and runs the full pipeline.
@@ -180,8 +184,8 @@ python app.py --device cpu
 ```
 
 Opens a Flask dashboard at `http://localhost:5000`. No profile is loaded at startup —
-pick a module (640C / CT11 Front / CT11 Back) on the Setup screen, which loads its
-camera, YOLO weights, and PatchCore model together as one unit. `--device` overrides
+pick a module (640C / CT11_Power/Front / CT11_Power/Back / CT11_Image) on the Setup screen,
+which loads its camera, YOLO weights, and PatchCore model together as one unit. `--device` overrides
 every profile's own `inference.device` (use `cpu` if the machine has no GPU, otherwise
 omit it to use each profile's own configured device); `--port` picks a different port
 (default 5000).
