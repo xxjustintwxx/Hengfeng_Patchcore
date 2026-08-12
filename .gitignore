@@ -22,11 +22,11 @@ build/
 
 # YOLO inference result images
 results/yolo/640C/pcb_inspection/
-results/yolo/CT11/pcb_inspection/
 
 # YOLO training run artifacts (large — weights, plots, csvs)
 results/yolo/640C/pcb_seg*/
-results/yolo/CT11/
+results/yolo/CT11_Power/
+results/yolo/CT11_Image/
 
 # Heatmap outputs
 results/heatmaps/

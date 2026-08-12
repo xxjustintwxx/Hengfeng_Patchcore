@@ -19,6 +19,15 @@ yolo:
   conf: 0.25            # global confidence floor
   nms_iou: 0.20         # global NMS IoU threshold (lower = stricter deduplication)
   imgsz: 1280           # YOLO inference resolution
+  # Classes (4): 0=Main IC  1=connector  2=resistor  3=screw -- no "board" class
+  # for 640C, so board-outline masking/off-board rejection never runs here.
+  class_names: ["Main IC", "connector", "resistor", "screw"]
+  class_colors:          # BGR
+    0: [255, 100,   0]   # Main IC   — orange
+    1: [  0, 200,   0]   # connector — green
+    2: [  0, 200, 200]   # resistor  — yellow
+    3: [  0,  80, 255]   # screw     — red
+  label_classes: [0, 1, 3]   # skip resistor (35 labels flood the image)
   class_conf:           # per-class confidence override (must be >= conf)
     0: 0.55             # Main IC
     1: 0.55             # connector
@@ -29,6 +38,8 @@ yolo:
     1: 4                # connector
     2: 35               # resistor
     3: 4                # screw
+  suppress_classes: [3]  # screw — suppressed from PatchCore heatmap, same as CT11_Image
+  class_nms_iou: {3: 0.30}   # per-class post-NMS IoU for screw deduplication
   suppress_dilation: 0  # expand screw mask edge outward by N px
                         # set to 20 if background screw halos appear in the heatmap
   # NMS tunables -- calibrate these against real captures via the debug panel's

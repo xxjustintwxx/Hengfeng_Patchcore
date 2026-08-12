@@ -23,7 +23,7 @@ import infer_pcb
 
 # ── CT11_Power Front overrides ───────────────────────────────────────────────────────
 infer_pcb.YOLO_WEIGHTS   = ROOT / "models/yolo/CT11_Power/Front/pcb_seg/weights/best.pt"
-infer_pcb.PATCHCORE_PATH = ROOT / "models/patchcore/CT11_Power/CT11_Power_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
+infer_pcb.PATCHCORE_PATH = ROOT / "models/patchcore/CT11_Power/CT11_Front_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"
 infer_pcb.OUTPUT_BASE    = ROOT / "results/heatmaps/CT11_Power/Front"
 
 infer_pcb.CLASS_NAMES = ["Main IC", "board", "component", "connector", "resistor"]

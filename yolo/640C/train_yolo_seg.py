@@ -8,8 +8,8 @@ Trains a YOLOv11-small-seg model to detect and segment PCB components:
   3: screw
 
 Augmentation is tuned aggressively for small datasets (13 train images).
-Trained weights land at:  models/yolo/pcb_seg/weights/best.pt
-Training logs land at:    results/yolo/pcb_seg/
+Trained weights land at:  models/yolo/640C/pcb_seg/weights/best.pt
+Training logs land at:    results/yolo/640C/
 """
 import os
 import shutil
@@ -21,8 +21,8 @@ from ultralytics import YOLO
 ROOT        = Path(__file__).resolve().parent.parent.parent  # Hengfeng_Patchcore/
 DATA_YAML   = ROOT / "data" / "PCB labeling" / "data.yaml"
 PRETRAINED  = ROOT / "models" / "yolo" / "yolo11s-seg.pt"
-WEIGHTS_DIR = ROOT / "models" / "yolo" / "pcb_seg" / "weights"
-RESULTS_DIR = ROOT / "results" / "yolo"
+WEIGHTS_DIR = ROOT / "models" / "yolo" / "640C" / "pcb_seg" / "weights"
+RESULTS_DIR = ROOT / "results" / "yolo" / "640C"
 
 # ── Download base weights if not present ───────────────────────────────────────
 if not PRETRAINED.exists():
@@ -88,7 +88,7 @@ model.train(
     save_period = 50,          # checkpoint every 50 epochs in addition to best/last
 )
 
-# ── Copy best weights to models/yolo/pcb_seg/weights/ ─────────────────────────
+# ── Copy best weights to models/yolo/640C/pcb_seg/weights/ ────────────────────
 trained_best = RESULTS_DIR / "pcb_seg_1280_s" / "weights" / "best.pt"
 trained_last = RESULTS_DIR / "pcb_seg_1280_s" / "weights" / "last.pt"
 
