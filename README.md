@@ -8,8 +8,12 @@ inspection profiles (one board family, three module/side variants — see
 2. **PatchCore (WideResNet50)** — surface anomaly heatmap, with screw regions and
    (where configured) everything outside the board's own outline suppressed
 
-**Verdict:** NG if the YOLO component count mismatches **or** the PatchCore score
-≥ the profile's `score_threshold`; otherwise OK.
+**Verdict:** NG if a YOLO component count mismatches **or** the PatchCore score
+≥ the profile's `score_threshold`; otherwise OK. A mismatch on a class listed in
+`soft_count_classes` (typically `resistor` — dense/small enough that YOLO
+under-counts it a little even on good boards) doesn't force NG on its own; it's
+flagged for human review instead, with PatchCore's score as the primary
+surface-defect signal.
 
 ---
 
@@ -23,7 +27,8 @@ Phone camera (IP Webcam)
   YOLOv11-seg component detection
     • per-class confidence filtering + 3-stage NMS (same-class, cross-class,
       containment) + off-board rejection (board-masking profiles only)
-    • exact count check per class (see expected_counts)
+    • exact count check per class (see expected_counts; soft_count_classes
+      flag-for-review instead of forcing NG)
     • build suppression mask (screws and/or off-board area)
         ↓
   PatchCore anomaly scoring
@@ -337,6 +342,7 @@ Every profile's `configs/<...>/live_config.yaml` has four top-level sections:
 | `label_classes` | which class indices get text labels drawn (avoid clutter from dense classes like resistor) | built-in fallback set |
 | `class_conf` | per-class confidence override (must be ≥ `conf`) | — |
 | `expected_counts` | exact count check per class index — omit a class to skip its count check | — |
+| `soft_count_classes` | classes whose count mismatch is flagged for human review (shown amber, doesn't force NG) instead of an automatic NG — every current profile sets this to its `resistor` index | — (all mismatches force NG) |
 | `suppress_classes` | classes whose masks are zeroed out of the PatchCore heatmap (e.g. screws) | built-in fallback (screw class) |
 | `class_nms_iou` | per-class same-class-duplicate NMS IoU override | built-in fallback (screw dedup) |
 | `suppress_dilation` | px to expand the suppression mask before use | `0` |

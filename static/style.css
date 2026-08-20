@@ -24,6 +24,8 @@
   --ok-soft: #e1f3e6;
   --ng: #c2451f;
   --ng-soft: #fbe6de;
+  --warn: #8a6d00;
+  --warn-soft: #fbf1cf;
 
   --radius: 10px;
   --radius-lg: 14px;
@@ -53,6 +55,8 @@
     --ok-soft: #163821;
     --ng: #ef6b45;
     --ng-soft: #3a1f16;
+    --warn: #f2c94c;
+    --warn-soft: #3d3210;
   }
 }
 
@@ -77,6 +81,8 @@
   --ok-soft: #163821;
   --ng: #ef6b45;
   --ng-soft: #3a1f16;
+  --warn: #f2c94c;
+  --warn-soft: #3d3210;
 }
 
 :root[data-theme="light"] {
@@ -100,6 +106,8 @@
   --ok-soft: #e1f3e6;
   --ng: #c2451f;
   --ng-soft: #fbe6de;
+  --warn: #8a6d00;
+  --warn-soft: #fbf1cf;
 }
 
 * { box-sizing: border-box; }
@@ -364,6 +372,7 @@ button:disabled:hover { background: transparent; border-color: var(--border-stro
 }
 
 .status.error { color: var(--ng); font-weight: 600; }
+.status.warn { color: var(--warn); font-weight: 600; }
 
 .status.mono { font-family: var(--font-mono); font-size: 0.82rem; }
 
@@ -462,6 +471,7 @@ button:disabled:hover { background: transparent; border-color: var(--border-stro
 }
 .status-chip.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
 .status-chip.ng { background: var(--ng-soft); color: var(--ng); border-color: color-mix(in srgb, var(--ng) 30%, transparent); }
+.status-chip.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 
 .details-toggle { margin-bottom: 20px; }
 .details-toggle .chevron { transition: transform 0.15s ease; }
@@ -599,11 +609,20 @@ button:disabled:hover { background: transparent; border-color: var(--border-stro
   color: var(--ng);
 }
 
+.chip.mismatch-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
 #issues-list ul {
   margin: 8px 0 0;
   padding-left: 20px;
   color: var(--ng);
   font-size: 0.88rem;
+}
+
+#issues-list ul.warn {
+  color: var(--warn);
 }
 
 /* --- Developer mode --- */

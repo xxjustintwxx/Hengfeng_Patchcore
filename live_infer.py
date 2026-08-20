@@ -309,7 +309,7 @@ def _draw_yolo_overlay(bgr: np.ndarray, yolo_res, class_conf: dict,
 def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     """Run YOLO on the preprocessed PCB image (already ROI-cropped + resized).
 
-    Returns (suppression, issues, detected_counts, yolo_bgr, raw_detections).
+    Returns (suppression, issues, soft_issues, detected_counts, yolo_bgr, raw_detections).
     """
     H, W    = pcb_bgr.shape[:2]
 
@@ -328,6 +328,11 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
     label_classes    = set(cfg_yolo.get("label_classes", LABEL_CLASSES))
     suppress_classes = set(cfg_yolo.get("suppress_classes", SUPPRESS_CLASSES))
     class_nms_iou    = {int(k): v for k, v in cfg_yolo.get("class_nms_iou", CLASS_NMS_IOU).items()}
+    # Classes whose count mismatch only flags for human review instead of
+    # forcing the whole board to NG (e.g. resistor -- dense/small enough that
+    # YOLO regularly under-counts it by a couple even on genuinely good boards,
+    # so PatchCore's anomaly score is the more trustworthy signal for those).
+    soft_count_classes = set(cfg_yolo.get("soft_count_classes", []))
 
     # NMS/masking tunables -- all overridable per-profile so they can be
     # calibrated against real captures without touching code (Settings page
@@ -483,11 +488,16 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
                 count_by_cls[cls_id] += 1
 
     issues = []
+    soft_issues = []
     for cls_id, exp in expected.items():
         got = count_by_cls[cls_id]
         if got != exp:
             tag = "missing" if got < exp else "extra"
-            issues.append(f"{class_names[cls_id]} ({got}/{exp} {tag})")
+            msg = f"{class_names[cls_id]} ({got}/{exp} {tag})"
+            if cls_id in soft_count_classes:
+                soft_issues.append(msg)
+            else:
+                issues.append(msg)
 
     # Draw on the same image YOLO actually saw (coordinates line up), then crop
     # the gray padding back off before returning.
@@ -524,7 +534,7 @@ def _run_yolo(yolo_model, pcb_bgr: np.ndarray, cfg_yolo: dict):
         for dets in raw_detections.values():
             dets.sort(key=lambda d: d["conf"], reverse=True)
 
-    return suppression, issues, detected_counts, yolo_bgr, raw_detections
+    return suppression, issues, soft_issues, detected_counts, yolo_bgr, raw_detections
 
 
 # ---------------------------------------------------------------------------
@@ -548,7 +558,7 @@ def _make_colorbar(height, width=20):
 
 
 def save_result(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
-                out_path, surface_fail=False):
+                out_path, surface_fail=False, soft_issues=None):
     """Save 3-panel result: YOLO overlay / anomaly map / peak anomaly location."""
     h, w = orig_bgr.shape[:2]
 
@@ -628,15 +638,20 @@ def save_result(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
         colour = (0, 150, 0)
     else:
         colour = (80, 80, 80)   # "LIVE" — no threshold set
-    banner_h = 70
-    banner   = np.full((banner_h, W_tot, 3), 255, dtype=np.uint8)
-    line1    = f"{verdict}   |   score = {score:.4f}"
-    parts    = []
+    warn_colour = (0, 200, 255)   # amber -- soft (review-only) issues; never
+                                   # changes verdict/banner colour, just noted
+
+    parts = []
     if issues:
         parts.append("component issues: " + ", ".join(issues))
     if surface_fail:
         parts.append("surface anomaly")
     line2 = "  |  ".join(parts)
+    line3 = ("review: " + ", ".join(soft_issues)) if soft_issues else ""
+
+    banner_h = 70 + (24 if line3 else 0)
+    banner   = np.full((banner_h, W_tot, 3), 255, dtype=np.uint8)
+    line1    = f"{verdict}   |   score = {score:.4f}"
     (vw, _), _ = cv2.getTextSize(line1, cv2.FONT_HERSHEY_DUPLEX, 1.0, 2)
     cv2.putText(banner, line1, ((W_tot - vw) // 2, 30),
                 cv2.FONT_HERSHEY_DUPLEX, 1.0, colour, 2, cv2.LINE_AA)
@@ -644,6 +659,10 @@ def save_result(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
         (mw, _), _ = cv2.getTextSize(line2, cv2.FONT_HERSHEY_SIMPLEX, 0.75, 2)
         cv2.putText(banner, line2, ((W_tot - mw) // 2, 58),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75, colour, 2, cv2.LINE_AA)
+    if line3:
+        (rw, _), _ = cv2.getTextSize(line3, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+        cv2.putText(banner, line3, ((W_tot - rw) // 2, 80),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, warn_colour, 2, cv2.LINE_AA)
     cv2.rectangle(banner, (0, banner_h - 6), (W_tot, banner_h), colour, -1)
 
     canvas = np.vstack([row, banner])
@@ -732,21 +751,23 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     if yolo_model is not None:
         try:
             cfg_yolo = cfg.get("yolo", {})
-            suppression, issues, detected_counts, yolo_bgr, _ = _run_yolo(
+            suppression, issues, soft_issues, detected_counts, yolo_bgr, _ = _run_yolo(
                 yolo_model, pcb_bgr, cfg_yolo
             )
         except Exception as e:
             print(f"  [YOLO ERROR] {e}", flush=True)
             suppression = np.zeros(output_size, dtype=bool)
-            issues, detected_counts, yolo_bgr = [], {}, pcb_bgr
+            issues, soft_issues, detected_counts, yolo_bgr = [], [], {}, pcb_bgr
         counts_str = ", ".join(f"{k}:{v}" for k, v in detected_counts.items())
         processing_time += time.time() - t0
         print(f"  Done  ({time.time()-t0:.2f}s)  [{counts_str}]", flush=True)
         if issues:
             print(f"  [COMPONENT ISSUES] {', '.join(issues)}", flush=True)
+        if soft_issues:
+            print(f"  [REVIEW] {', '.join(soft_issues)}", flush=True)
     else:
         suppression = np.zeros(output_size, dtype=bool)
-        issues, detected_counts, yolo_bgr = [], {}, pcb_bgr
+        issues, soft_issues, detected_counts, yolo_bgr = [], [], {}, pcb_bgr
         print(f"  Skipped (--no_yolo)", flush=True)
 
     # Step 4 — PatchCore
@@ -798,7 +819,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     result_path  = os.path.join(heatmaps_dir, f"{ts}_result.jpg")
     try:
         save_result(pcb_bgr, yolo_bgr, raw_heatmap, score, label, issues,
-                    result_path, surface_fail=surface_fail)
+                    result_path, surface_fail=surface_fail, soft_issues=soft_issues)
         processing_time += time.time() - t0
         print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
         print(f"  Raw    → {raw_path}", flush=True)

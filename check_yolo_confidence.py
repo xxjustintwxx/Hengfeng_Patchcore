@@ -51,7 +51,7 @@ def main():
     # board-masking gray-border padding, per-class/cross-class/containment
     # NMS, etc. -- no separate copy of that logic to keep in sync.
     model = YOLO(cfg_yolo["weights"])
-    _, _, _, _, raw_detections = _run_yolo(model, pcb_bgr, cfg_yolo)
+    _, _, _, _, _, raw_detections = _run_yolo(model, pcb_bgr, cfg_yolo)
 
     print(f"Config:  {args.config}")
     print(f"Image:   {args.image}")

@@ -97,9 +97,13 @@ document.getElementById("model-select").addEventListener("change", applyProfileD
 const LAST_SETTINGS_KEY = "lastSettings";
 
 // Shared by the manual Start/Save submit and the startup auto-restore --
-// posts to /api/settings and, on success, updates state + persists the
-// payload for next time. Doesn't touch #settings-status or navigate itself:
-// the two callers want different status text and next-screen behavior.
+// posts to /api/settings and, on success, updates state + remembers which
+// profile was picked for next time. Doesn't touch #settings-status or
+// navigate itself: the two callers want different status text and
+// next-screen behavior. Only config_path is persisted, not the numeric
+// fields -- those always come fresh from the config file on restore (see
+// restoreLastSettings), so a hand-edited live_config.yaml is never shadowed
+// by a stale cached number.
 async function applySettings(payload) {
   const res = await fetch("/api/settings", {
     method: "POST",
@@ -111,7 +115,7 @@ async function applySettings(payload) {
     return { ok: false, error: data.error };
   }
   state.activeSettings = data;
-  localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify(payload));
+  localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify({ config_path: payload.config_path }));
   updateActiveSettingsLabel();
   return { ok: true, data };
 }
@@ -139,15 +143,17 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
   showScreen(postSettingsScreen());
 });
 
-// On startup, pre-fill the Setup form with whatever profile+settings were
-// last successfully applied (if any), so a page reload mid-shift doesn't
-// force re-picking the module and re-entering dilation/threshold values from
-// scratch. Deliberately does NOT auto-load the model or jump ahead to
-// Capture -- stays on Setup so the operator can change anything (or just
-// confirm) before committing to a model load. Falls back to a plain empty
-// Setup screen if there's nothing to restore or it no longer matches a real
-// profile (renamed/deleted config) -- a corrupted/stale localStorage value
-// must never break page load.
+// On startup, pre-fill the Setup form with whatever profile was last
+// successfully applied (if any), so a page reload mid-shift doesn't force
+// re-picking the module. The dilation/threshold fields are always populated
+// from that profile's *current* config_path via applyProfileDefaults() --
+// not a cached value -- so hand-editing live_config.yaml and reloading is
+// reflected immediately. Deliberately does NOT auto-load the model or jump
+// ahead to Capture -- stays on Setup so the operator can change anything (or
+// just confirm) before committing to a model load. Falls back to a plain
+// empty Setup screen if there's nothing to restore or it no longer matches a
+// real profile (renamed/deleted config) -- a corrupted/stale localStorage
+// value must never break page load.
 function restoreLastSettings() {
   const statusEl = document.getElementById("settings-status");
   let saved = null;
@@ -162,10 +168,11 @@ function restoreLastSettings() {
   }
 
   document.getElementById("model-select").value = saved.config_path;
-  document.getElementById("dilation-input").value = saved.suppress_dilation;
-  document.getElementById("board-dilation-input").value = saved.board_dilation;
-  document.getElementById("threshold-input").value =
-    saved.score_threshold === null ? "" : saved.score_threshold;
+  // Only the *choice of profile* is restored from the cache -- the numeric
+  // fields always come fresh from the config file (same as switching profiles
+  // manually), so hand-editing live_config.yaml and reloading picks up the
+  // new values immediately instead of reapplying a stale cached number.
+  applyProfileDefaults();
   setStatus(statusEl, "Restored last-used settings — review and click Start.");
   showScreen("settings");
 }
@@ -384,20 +391,28 @@ function renderResult(data) {
   document.getElementById("ng-threshold-value").textContent =
     ngThreshold === null ? "none set" : ngThreshold;
 
+  const softIssues = data.soft_issues || [];
+
   const countsEl = document.getElementById("component-counts");
   countsEl.innerHTML = "<p class=\"eyebrow\">Detected components</p><ul class=\"chip-list\">" +
     Object.entries(data.detected_counts)
       .map(([name, n]) => {
-        const mismatch = data.issues.some((i) => i.startsWith(name + " ("));
-        return `<li class="chip${mismatch ? " mismatch" : ""}">${name} ${n}</li>`;
+        const hardMismatch = data.issues.some((i) => i.startsWith(name + " ("));
+        const softMismatch = !hardMismatch && softIssues.some((i) => i.startsWith(name + " ("));
+        const cls = hardMismatch ? " mismatch" : softMismatch ? " mismatch-warn" : "";
+        return `<li class="chip${cls}">${name} ${n}</li>`;
       })
       .join("") +
     "</ul>";
 
   const issuesEl = document.getElementById("issues-list");
-  issuesEl.innerHTML = data.issues.length
-    ? "<p class=\"eyebrow\">Component issues</p><ul>" + data.issues.map((i) => `<li>${i}</li>`).join("") + "</ul>"
-    : "";
+  issuesEl.innerHTML =
+    (data.issues.length
+      ? "<p class=\"eyebrow\">Component issues</p><ul>" + data.issues.map((i) => `<li>${i}</li>`).join("") + "</ul>"
+      : "") +
+    (softIssues.length
+      ? "<p class=\"eyebrow\">Needs review</p><ul class=\"warn\">" + softIssues.map((i) => `<li>${i}</li>`).join("") + "</ul>"
+      : "");
 
   const slider = document.getElementById("threshold-slider");
   slider.min = data.range.min;
@@ -462,15 +477,24 @@ function updateSliderFill(slider) {
 }
 
 function checkIcon(cls) {
-  return cls === "ok"
-    ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
-    : '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
+  if (cls === "ok") {
+    return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>';
+  }
+  if (cls === "warn") {
+    return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"></path><line x1="12" y1="9" x2="12" y2="14"></line><line x1="12" y1="17" x2="12" y2="17.01"></line></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
 }
 
 function updateVerdict(data, threshold) {
   const badge = document.getElementById("verdict-badge");
+  const softIssues = data.soft_issues || [];
   const surfaceFail = data.score >= threshold;
+  // Only hard issues (data.issues) force NG -- a resistor-only (soft) count
+  // mismatch is flagged for human review instead, with PatchCore's score as
+  // the primary surface-defect signal. See soft_count_classes in live_config.yaml.
   const componentsFail = data.issues.length > 0;
+  const componentsWarn = !componentsFail && softIssues.length > 0;
   const cls = (componentsFail || surfaceFail) ? "ng" : "ok";
   const label = cls === "ng" ? "NG" : "OK";
 
@@ -485,10 +509,10 @@ function updateVerdict(data, threshold) {
   surfaceEl.innerHTML = checkIcon(surfaceCls) + `<span>${surfaceText}</span>`;
   surfaceEl.className = "status-chip " + surfaceCls;
 
-  const componentsCls = componentsFail ? "ng" : "ok";
+  const componentsCls = componentsFail ? "ng" : componentsWarn ? "warn" : "ok";
   const componentsEl = document.getElementById("components-status");
-  const componentsText = componentsFail
-    ? `Components: NG — ${data.issues.join(", ")}`
+  const componentsText = (componentsFail || componentsWarn)
+    ? `Components: NG — ${[...data.issues, ...softIssues].join(", ")}`
     : "Components: OK";
   componentsEl.innerHTML = checkIcon(componentsCls) + `<span>${componentsText}</span>`;
   componentsEl.className = "status-chip " + componentsCls;
@@ -614,6 +638,7 @@ async function submitVerification(humanVerdict) {
       system_verdict: data.system_verdict,
       score: data.score,
       issues: data.issues,
+      soft_issues: data.soft_issues,
       human_verdict: humanVerdict,
     }),
   });
@@ -699,12 +724,14 @@ function renderHistoryCard(entry) {
     ? `<a href="${entry.image_url}" target="_blank"><img src="${entry.image_url}" alt="Result"></a>`
     : `<div class="history-card-placeholder"></div>`;
   const issuesText = entry.issues && entry.issues.length ? entry.issues.join(", ") : "";
+  const softIssuesText = entry.soft_issues && entry.soft_issues.length ? entry.soft_issues.join(", ") : "";
   return `<div class="panel history-card">
     ${thumb}
     <div class="history-card-meta">
       <span class="badge ${cls}">${entry.system_verdict}</span>
       <span class="status mono">${formatTs(entry.ts)}  |  ${entry.profile}  |  score ${entry.score.toFixed(2)}</span>
       ${issuesText ? `<span class="status error">${issuesText}</span>` : ""}
+      ${softIssuesText ? `<span class="status warn">review: ${softIssuesText}</span>` : ""}
     </div>
   </div>`;
 }

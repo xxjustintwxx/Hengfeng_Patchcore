@@ -46,6 +46,10 @@ yolo:
     4: 40                # resistor
     5: 1                 # screw
   suppress_classes: [5]  # screw — suppressed from PatchCore heatmap, same as 640C
+  soft_count_classes: [4]  # resistor -- count mismatch flags for human review
+                            # instead of forcing NG; PatchCore's score is the
+                            # primary surface-defect signal now, since YOLO
+                            # under-counts this dense/small class even on good boards
   class_nms_iou: {}      # no per-class post-NMS overrides for CT11_Image
   suppress_dilation: 20
   # NMS/masking tunables -- calibrate these against real captures via the debug
@@ -67,7 +71,7 @@ yolo:
 
 inference:
   device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
-  score_threshold: 200.0  # placeholder — calibrate after seeing scores
+  score_threshold: 210.0  # placeholder — calibrate after seeing scores
 
 output:
   patchcore_model: "models/patchcore/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"

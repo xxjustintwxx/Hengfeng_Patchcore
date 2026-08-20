@@ -40,6 +40,10 @@ yolo:
     2: 1                 # connector
     3: 61                # resistor
   suppress_classes: []   # no PatchCore-heatmap suppression for CT11_Power Back
+  soft_count_classes: [3]  # resistor -- count mismatch flags for human review
+                            # instead of forcing NG; PatchCore's score is the
+                            # primary surface-defect signal now, since YOLO
+                            # under-counts this dense/small class even on good boards
   class_nms_iou: {}      # no per-class post-NMS overrides for CT11_Power Back
   suppress_dilation: 0
   # NMS/masking tunables -- calibrate these against real captures via the debug

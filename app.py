@@ -347,7 +347,7 @@ def api_infer():
     cfg_yolo["board_dilation"] = STATE["board_dilation"]
     yolo_model = get_yolo(cfg_yolo["weights"])
     t0 = time.time()
-    suppression, issues, detected_counts, yolo_bgr, raw_detections = _run_yolo(
+    suppression, issues, soft_issues, detected_counts, yolo_bgr, raw_detections = _run_yolo(
         yolo_model, pcb_bgr, cfg_yolo
     )
     timings["yolo"] = round(time.time() - t0, 2)
@@ -390,7 +390,7 @@ def api_infer():
     result_path = os.path.join(heatmaps_dir, f"{ts}_result.jpg")
     try:
         save_result(pcb_bgr, yolo_bgr, raw_heatmap, score, label, issues,
-                    result_path, surface_fail=surface_fail)
+                    result_path, surface_fail=surface_fail, soft_issues=soft_issues)
     except Exception:
         result_path = None
 
@@ -419,6 +419,7 @@ def api_infer():
         "surface_fail": surface_fail,
         "detected_counts": detected_counts,
         "issues": issues,
+        "soft_issues": soft_issues,
         "system_verdict": label,
         "result_path": result_path,
         "timings": timings,
@@ -442,6 +443,7 @@ def api_infer():
         },
         "score": score,
         "issues": issues,
+        "soft_issues": soft_issues,
         "detected_counts": detected_counts,
         "range": {"min": lo, "max": hi},
         "suggested_threshold": suggested_threshold,
@@ -542,6 +544,7 @@ def api_verify():
         "human_verdict": human_verdict,
         "score": data.get("score"),
         "issues": data.get("issues"),
+        "soft_issues": data.get("soft_issues"),
         "classification": classification,
         "verified_at": datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
     }

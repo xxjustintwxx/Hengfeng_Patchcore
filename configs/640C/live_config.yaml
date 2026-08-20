@@ -39,6 +39,10 @@ yolo:
     2: 35               # resistor
     3: 4                # screw
   suppress_classes: [3]  # screw — suppressed from PatchCore heatmap, same as CT11_Image
+  soft_count_classes: [2]  # resistor -- count mismatch flags for human review
+                            # instead of forcing NG; PatchCore's score is the
+                            # primary surface-defect signal now, since YOLO
+                            # under-counts this dense/small class even on good boards
   class_nms_iou: {3: 0.30}   # per-class post-NMS IoU for screw deduplication
   suppress_dilation: 0  # expand screw mask edge outward by N px
                         # set to 20 if background screw halos appear in the heatmap
