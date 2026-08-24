@@ -385,7 +385,7 @@ function renderResult(data) {
   const t = data.timings || {};
   document.getElementById("timing-breakdown").textContent =
     `Server breakdown — preprocess: ${t.preprocess}s | YOLO: ${t.yolo}s | ` +
-    `PatchCore: ${t.patchcore}s | save: ${t.save_and_encode}s | server total: ${t.total}s`;
+    `PatchCore: ${t.patchcore}s | save: ${t.save}s | server total: ${t.total}s`;
 
   const ngThreshold = state.activeSettings ? state.activeSettings.score_threshold : null;
   document.getElementById("ng-threshold-value").textContent =
@@ -742,7 +742,7 @@ async function loadHistory() {
   const profile = document.getElementById("history-profile-select").value;
   setStatus(statusEl, "Loading...");
 
-  const res = await fetch(`/api/history?limit=20${profile ? "&profile=" + encodeURIComponent(profile) : ""}`);
+  const res = await fetch(`/api/history?limit=10${profile ? "&profile=" + encodeURIComponent(profile) : ""}`);
   const data = await res.json();
   if (!res.ok) {
     setStatus(statusEl, "Error: " + data.error, true);

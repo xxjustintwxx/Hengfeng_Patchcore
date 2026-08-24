@@ -34,14 +34,12 @@ import patchcore.patchcore
 
 from capture import capture_snapshot
 from live_infer import (
-    CLASS_NAMES,
     SUPPRESS_VALUE,
     ROOT,
-    bgr_to_tensor,
-    crop_and_resize,
+    _profile_label,
+    append_jsonl,
     load_config,
-    save_result,
-    _run_yolo,
+    run_inference,
     _to_colormap,
 )
 
@@ -99,24 +97,6 @@ def encode_jpeg_b64(bgr_img: np.ndarray) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
 
 
-def _profile_label(config_path: str) -> str:
-    """Derive the human-readable profile label ("640C", "CT11_Power/Front", ...) from
-    a live_config.yaml path -- the path relative to configs/ with the trailing
-    /live_config.yaml stripped. Shared by discover_profiles() and
-    api_settings() so every caller derives it identically."""
-    configs_root = os.path.join(str(ROOT), "configs")
-    abs_path = config_path if os.path.isabs(config_path) else os.path.join(str(ROOT), config_path)
-    return os.path.dirname(os.path.relpath(abs_path, configs_root)).replace("\\", "/")
-
-
-def append_jsonl(path: str, record: dict) -> None:
-    """Append one JSON-encoded record as a line to path, creating parent dirs
-    as needed. Opened/closed per call -- no long-lived file handle across
-    requests -- which is fine since this server runs threaded=False (single-
-    threaded), so there's no concurrent-writer race to guard against."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
 
 
 def discover_profiles():
@@ -329,111 +309,51 @@ def api_infer():
     if not STATE["active_model_path"]:
         return jsonify({"error": "No PatchCore model selected — visit settings first"}), 400
 
-    cfg = STATE["cfg"]
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     t_start = time.time()
-    timings = {}
+    cfg = STATE["cfg"]
+    yolo_model = get_yolo(cfg["yolo"]["weights"])
+    pc = get_patchcore(STATE["active_model_path"])
 
-    roi = cfg["preprocessing"].get("roi")
-    output_size = tuple(cfg["preprocessing"]["output_size"])
-    t0 = time.time()
-    pcb_bgr = crop_and_resize(raw_bgr, roi, output_size)
-    timings["preprocess"] = round(time.time() - t0, 2)
-
-    # board_dilation applies INSIDE _run_yolo (unlike suppress_dilation, which
-    # applies externally to the already-combined mask below), so the live
-    # Settings override has to be injected into the cfg before that call.
-    cfg_yolo = dict(cfg.get("yolo", {}))
-    cfg_yolo["board_dilation"] = STATE["board_dilation"]
-    yolo_model = get_yolo(cfg_yolo["weights"])
-    t0 = time.time()
-    suppression, issues, soft_issues, detected_counts, yolo_bgr, raw_detections = _run_yolo(
-        yolo_model, pcb_bgr, cfg_yolo
+    result = run_inference(
+        yolo_model, pc, STATE["device"], cfg, raw_bgr,
+        STATE["active_profile_label"], STATE["active_config_path"],
+        suppress_dilation=STATE["suppress_dilation"],
+        board_dilation=STATE["board_dilation"],
+        score_threshold=STATE["score_threshold"],
     )
-    timings["yolo"] = round(time.time() - t0, 2)
-    STATE["last_debug_detections"] = raw_detections
+    STATE["last_debug_detections"] = result["raw_detections"]
     STATE["last_debug_profile"] = STATE["active_profile_label"]
 
     t0 = time.time()
-    pc = get_patchcore(STATE["active_model_path"])
-    resize_sz = cropsize_sz = output_size[0]
-    tensor = bgr_to_tensor(pcb_bgr, resize_sz, cropsize_sz).to(STATE["device"])
-    scores, masks = pc._predict(tensor)
-    raw_heatmap = np.array(masks[0], dtype=np.float32)
-    timings["patchcore"] = round(time.time() - t0, 2)
-
-    if suppression.shape != raw_heatmap.shape:
-        suppression = cv2.resize(
-            suppression.astype(np.uint8),
-            (raw_heatmap.shape[1], raw_heatmap.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        ).astype(bool)
-    dilation = STATE["suppress_dilation"]
-    if dilation > 0:
-        r = dilation
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
-        suppression = cv2.dilate(suppression.astype(np.uint8), kernel).astype(bool)
-    raw_heatmap[suppression] = SUPPRESS_VALUE
-
+    raw_heatmap = result["raw_heatmap"]
     valid_px = raw_heatmap[raw_heatmap >= 0]
-    score = float(valid_px.max()) if valid_px.size else 0.0
-
-    threshold = STATE["score_threshold"]
-    surface_fail = threshold is not None and score >= threshold
-    if threshold is not None:
-        label = "NG" if (issues or surface_fail) else "OK"
-    else:
-        label = "NG" if issues else "LIVE"
-
-    t0 = time.time()
-    heatmaps_dir = cfg["output"]["heatmaps_dir"]
-    result_path = os.path.join(heatmaps_dir, f"{ts}_result.jpg")
-    try:
-        save_result(pcb_bgr, yolo_bgr, raw_heatmap, score, label, issues,
-                    result_path, surface_fail=surface_fail, soft_issues=soft_issues)
-    except Exception:
-        result_path = None
-
     cm = _to_colormap(raw_heatmap)
-    heatmap_blend = cv2.addWeighted(pcb_bgr, 0.5, cm, 0.5, 0)
-    timings["save_and_encode"] = round(time.time() - t0, 2)
-    timings["total"] = round(time.time() - t_start, 2)
-    print(f"[{ts}] timings: {timings}", flush=True)
+    heatmap_blend = cv2.addWeighted(result["pcb_bgr"], 0.5, cm, 0.5, 0)
 
     grid = downsample_heatmap(raw_heatmap)
     lo = float(valid_px.min()) if valid_px.size else 0.0
     hi = float(valid_px.max()) if valid_px.size else 1.0
+    threshold = STATE["score_threshold"]
     suggested_threshold = threshold if threshold is not None else float(
         np.percentile(valid_px, 95)
     ) if valid_px.size else hi
 
-    # Always-on structured log of every inference -- independent of developer
-    # mode, so score/issues/timings history exists even if dev mode is never
-    # turned on.
-    append_jsonl(os.path.join(RESULTS_DIR, "inference_log.jsonl"), {
-        "ts": ts,
-        "profile": STATE["active_profile_label"],
-        "config_path": STATE["active_config_path"],
-        "score": score,
-        "score_threshold": threshold,
-        "surface_fail": surface_fail,
-        "detected_counts": detected_counts,
-        "issues": issues,
-        "soft_issues": soft_issues,
-        "system_verdict": label,
-        "result_path": result_path,
-        "timings": timings,
-        "suppress_dilation": STATE["suppress_dilation"],
-        "board_dilation": STATE["board_dilation"],
-    })
+    # run_inference()'s own "total" only spans its internal work (preprocess/
+    # YOLO/PatchCore/save) -- overwrite it here with the full request span,
+    # including the heatmap colormap/blend/grid postprocessing above, so the
+    # Result screen's "server total" isn't a silent undercount.
+    timings = dict(result["timings"])
+    timings["postprocess"] = round(time.time() - t0, 2)
+    timings["total"] = round(time.time() - t_start, 2)
+    print(f"[{result['ts']}] timings: {timings}", flush=True)
 
     return jsonify({
-        "ts": ts,
+        "ts": result["ts"],
         "profile": STATE["active_profile_label"],
         "config_path": STATE["active_config_path"],
-        "system_verdict": label,
-        "pcb_image": encode_jpeg_b64(pcb_bgr),
-        "yolo_image": encode_jpeg_b64(yolo_bgr),
+        "system_verdict": result["label"],
+        "pcb_image": encode_jpeg_b64(result["pcb_bgr"]),
+        "yolo_image": encode_jpeg_b64(result["yolo_bgr"]),
         "heatmap_image": encode_jpeg_b64(heatmap_blend),
         "grid": {
             "width": int(grid.shape[1]),
@@ -441,13 +361,13 @@ def api_infer():
             "values": [round(float(v), 3) for v in grid.flatten()],
             "suppress_value": SUPPRESS_VALUE,
         },
-        "score": score,
-        "issues": issues,
-        "soft_issues": soft_issues,
-        "detected_counts": detected_counts,
+        "score": result["score"],
+        "issues": result["issues"],
+        "soft_issues": result["soft_issues"],
+        "detected_counts": result["detected_counts"],
         "range": {"min": lo, "max": hi},
         "suggested_threshold": suggested_threshold,
-        "result_path": result_path,
+        "result_path": result["result_path"],
         "timings": timings,
     })
 

@@ -15,8 +15,10 @@ Usage:
   python live_infer.py --config configs/640C/live_config.yaml --no_yolo   # PatchCore-only (skip YOLO)
 """
 import argparse
+import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -670,24 +672,157 @@ def save_result(orig_bgr, yolo_bgr, anom_map, score, verdict, issues,
     cv2.imwrite(out_path, canvas)
 
 
+def _profile_label(config_path: str) -> str:
+    """Derive the human-readable profile label ("640C", "CT11_Power/Front", ...) from
+    a live_config.yaml path -- the path relative to configs/ with the trailing
+    /live_config.yaml stripped. Shared by discover_profiles() and
+    api_settings() (app.py) and main() (this file) so every caller derives it
+    identically."""
+    configs_root = os.path.join(str(ROOT), "configs")
+    abs_path = config_path if os.path.isabs(config_path) else os.path.join(str(ROOT), config_path)
+    return os.path.dirname(os.path.relpath(abs_path, configs_root)).replace("\\", "/")
+
+
+def append_jsonl(path: str, record: dict) -> None:
+    """Append one JSON-encoded record as a line to path, creating parent dirs
+    as needed. Opened/closed per call -- no long-lived file handle across
+    calls -- which is fine since both callers (the CLI's Enter-to-capture loop
+    and app.py's single-threaded Flask server) are single-threaded, so there's
+    no concurrent-writer race to guard against."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
 # ---------------------------------------------------------------------------
 # Core inference pipeline (trigger-agnostic)
 # ---------------------------------------------------------------------------
 
-def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
-    """One full cycle: capture → ROI crop+resize → YOLO → PatchCore → save.
+def run_inference(yolo_model, pc, device, cfg, raw_bgr, profile_label, config_path, *,
+                  suppress_dilation, board_dilation, score_threshold) -> dict:
+    """Crop → YOLO → PatchCore → verdict → save → log -- the one place this
+    logic exists, shared by the CLI (run_inference_pipeline, below) and the
+    web app (app.py::api_infer). Callers own capture and presentation
+    (console text vs JSON/base64 images/interactive grid); this function owns
+    everything in between, plus the always-on inference_log.jsonl write, so
+    CLI and web-app captures alike show up in History/Session stats.
 
-    "Total time" sums only the processing steps below (capture, preprocess,
-    YOLO, PatchCore, save) — it excludes the ROI-confirm prompt, so however
-    long you spend deciding whether to proceed doesn't count toward it.
+    suppress_dilation/board_dilation/score_threshold are passed in explicitly
+    rather than read from cfg -- the web app allows per-session overrides of
+    these (Settings screen), while the CLI passes its own cfg-derived values
+    straight through, so this function doesn't need to know which caller it is.
+
+    Returns a dict: ts, pcb_bgr, yolo_bgr, raw_heatmap, score, issues,
+    soft_issues, detected_counts, surface_fail, label, result_path, timings,
+    raw_detections.
     """
-    import time
-    processing_time = 0.0
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    t_start = time.time()
+    timings = {}
+
+    roi = cfg["preprocessing"].get("roi")
+    output_size = tuple(cfg["preprocessing"]["output_size"])
+    t0 = time.time()
+    pcb_bgr = crop_and_resize(raw_bgr, roi, output_size)
+    timings["preprocess"] = round(time.time() - t0, 2)
+
+    t0 = time.time()
+    if yolo_model is not None:
+        cfg_yolo = dict(cfg.get("yolo", {}))
+        cfg_yolo["board_dilation"] = board_dilation
+        suppression, issues, soft_issues, detected_counts, yolo_bgr, raw_detections = _run_yolo(
+            yolo_model, pcb_bgr, cfg_yolo
+        )
+    else:
+        # --no_yolo (CLI-only): PatchCore-only run, nothing to suppress or count.
+        suppression = np.zeros(output_size, dtype=bool)
+        issues, soft_issues, detected_counts, yolo_bgr, raw_detections = [], [], {}, pcb_bgr, {}
+    timings["yolo"] = round(time.time() - t0, 2)
+
+    t0 = time.time()
+    resize_sz = cropsize_sz = output_size[0]
+    tensor = bgr_to_tensor(pcb_bgr, resize_sz, cropsize_sz).to(device)
+    scores, masks = pc._predict(tensor)
+    raw_heatmap = np.array(masks[0], dtype=np.float32)
+    timings["patchcore"] = round(time.time() - t0, 2)
+
+    if suppression.shape != raw_heatmap.shape:
+        suppression = cv2.resize(
+            suppression.astype(np.uint8),
+            (raw_heatmap.shape[1], raw_heatmap.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        ).astype(bool)
+    if suppress_dilation > 0:
+        r = suppress_dilation
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+        suppression = cv2.dilate(suppression.astype(np.uint8), kernel).astype(bool)
+    raw_heatmap[suppression] = SUPPRESS_VALUE
+
+    valid_px = raw_heatmap[raw_heatmap >= 0]
+    score = float(valid_px.max()) if valid_px.size else 0.0
+
+    surface_fail = score_threshold is not None and score >= score_threshold
+    if score_threshold is not None:
+        label = "NG" if (issues or surface_fail) else "OK"
+    else:
+        label = "NG" if issues else "LIVE"
+
+    t0 = time.time()
+    heatmaps_dir = cfg["output"]["heatmaps_dir"]
+    result_path = os.path.join(heatmaps_dir, f"{ts}_result.jpg")
+    try:
+        save_result(pcb_bgr, yolo_bgr, raw_heatmap, score, label, issues,
+                    result_path, surface_fail=surface_fail, soft_issues=soft_issues)
+    except Exception:
+        result_path = None
+    timings["save"] = round(time.time() - t0, 2)
+    timings["total"] = round(time.time() - t_start, 2)
+
+    append_jsonl(os.path.join(str(ROOT), "results", "inference_log.jsonl"), {
+        "ts": ts,
+        "profile": profile_label,
+        "config_path": config_path,
+        "score": score,
+        "score_threshold": score_threshold,
+        "surface_fail": surface_fail,
+        "detected_counts": detected_counts,
+        "issues": issues,
+        "soft_issues": soft_issues,
+        "system_verdict": label,
+        "result_path": result_path,
+        "timings": timings,
+        "suppress_dilation": suppress_dilation,
+        "board_dilation": board_dilation,
+    })
+
+    return {
+        "ts": ts,
+        "pcb_bgr": pcb_bgr,
+        "yolo_bgr": yolo_bgr,
+        "raw_heatmap": raw_heatmap,
+        "score": score,
+        "issues": issues,
+        "soft_issues": soft_issues,
+        "detected_counts": detected_counts,
+        "surface_fail": surface_fail,
+        "label": label,
+        "result_path": result_path,
+        "timings": timings,
+        "raw_detections": raw_detections,
+    }
+
+
+def run_inference_pipeline(yolo_model, pc, device, cfg, profile_label, config_path) -> None:
+    """One full cycle: capture (with a console ROI-confirm gate) → shared
+    run_inference() → console report. The capture + confirm step here has no
+    web equivalent (the browser's own Retake/Run-inference buttons do that job
+    for app.py); everything past that is the same pipeline app.py uses.
+    """
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     # Step 1 — Capture
     cam = cfg["camera"]
-    print(f"[{ts}] Step 1/5  Capturing from camera...", flush=True)
+    print(f"[{ts}] Step 1/2  Capturing from camera...", flush=True)
     t0 = time.time()
     try:
         raw_bgr = capture_snapshot(
@@ -700,7 +835,6 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
     except RuntimeError as e:
         print(f"  [CAPTURE ERROR] {e}", flush=True)
         return
-    processing_time += time.time() - t0
     print(f"  Done  ({time.time()-t0:.2f}s)  — {raw_bgr.shape[1]}x{raw_bgr.shape[0]}", flush=True)
 
     # Save raw photo
@@ -733,100 +867,30 @@ def run_inference_pipeline(yolo_model, pc, device, cfg) -> None:
             print("  Cancelled.", flush=True)
             return
 
-    # Step 2 — ROI crop + resize
-    output_size = tuple(cfg["preprocessing"]["output_size"])
-    print(f"  Step 2/5  Preprocessing (ROI crop + resize to {output_size})...", flush=True)
+    # Step 2 — shared pipeline (crop → YOLO → PatchCore → verdict → save → log)
+    print("  Step 2/2  Running inference...", flush=True)
     t0 = time.time()
-    try:
-        pcb_bgr = crop_and_resize(raw_bgr, roi, output_size)
-    except Exception as e:
-        print(f"  [PREPROCESS ERROR] {e}", flush=True)
-        return
-    processing_time += time.time() - t0
+    cfg_yolo = cfg.get("yolo", {})
+    result = run_inference(
+        yolo_model, pc, device, cfg, raw_bgr, profile_label, config_path,
+        suppress_dilation=cfg_yolo.get("suppress_dilation", 0),
+        board_dilation=cfg_yolo.get("board_dilation", 20),
+        score_threshold=cfg["inference"].get("score_threshold"),
+    )
     print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
 
-    # Step 3 — YOLO
-    print(f"  Step 3/5  YOLO component detection...", flush=True)
-    t0 = time.time()
-    if yolo_model is not None:
-        try:
-            cfg_yolo = cfg.get("yolo", {})
-            suppression, issues, soft_issues, detected_counts, yolo_bgr, _ = _run_yolo(
-                yolo_model, pcb_bgr, cfg_yolo
-            )
-        except Exception as e:
-            print(f"  [YOLO ERROR] {e}", flush=True)
-            suppression = np.zeros(output_size, dtype=bool)
-            issues, soft_issues, detected_counts, yolo_bgr = [], [], {}, pcb_bgr
-        counts_str = ", ".join(f"{k}:{v}" for k, v in detected_counts.items())
-        processing_time += time.time() - t0
-        print(f"  Done  ({time.time()-t0:.2f}s)  [{counts_str}]", flush=True)
-        if issues:
-            print(f"  [COMPONENT ISSUES] {', '.join(issues)}", flush=True)
-        if soft_issues:
-            print(f"  [REVIEW] {', '.join(soft_issues)}", flush=True)
-    else:
-        suppression = np.zeros(output_size, dtype=bool)
-        issues, soft_issues, detected_counts, yolo_bgr = [], [], {}, pcb_bgr
-        print(f"  Skipped (--no_yolo)", flush=True)
-
-    # Step 4 — PatchCore
-    print(f"  Step 4/5  PatchCore inference...", flush=True)
-    t0 = time.time()
-    try:
-        resize_sz = cropsize_sz = output_size[0]
-        tensor = bgr_to_tensor(pcb_bgr, resize_sz, cropsize_sz).to(device)
-        scores, masks = pc._predict(tensor)
-    except Exception as e:
-        print(f"  [INFERENCE ERROR] {e}", flush=True)
-        return
-    processing_time += time.time() - t0
-    print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
-
-    raw_heatmap = np.array(masks[0], dtype=np.float32)
-
-    # Apply screw suppression with optional dilation
-    if suppression.shape != raw_heatmap.shape:
-        suppression = cv2.resize(
-            suppression.astype(np.uint8),
-            (raw_heatmap.shape[1], raw_heatmap.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        ).astype(bool)
-    suppress_dilation = cfg.get("yolo", {}).get("suppress_dilation", 0)
-    if suppress_dilation > 0:
-        r      = suppress_dilation
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*r+1, 2*r+1))
-        suppression = cv2.dilate(suppression.astype(np.uint8), kernel).astype(bool)
-    raw_heatmap[suppression] = SUPPRESS_VALUE
-
-    valid_px = raw_heatmap[raw_heatmap >= 0]
-    score    = float(valid_px.max()) if valid_px.size else 0.0
-
-    # Verdict
-    threshold    = cfg["inference"].get("score_threshold")
-    surface_fail = (threshold is not None and score >= threshold)
-    if threshold is not None:
-        label = "NG" if (issues or surface_fail) else "OK"
-    else:
-        label = "NG" if issues else "LIVE"
-    yolo_status = "YOLO: " + (", ".join(issues) if issues else "OK")
-    print(f"  Score: {score:.4f}  [{label}]  {yolo_status}", flush=True)
-
-    # Step 5 — Save result
-    print(f"  Step 5/5  Saving result...", flush=True)
-    t0 = time.time()
-    heatmaps_dir = cfg["output"]["heatmaps_dir"]
-    result_path  = os.path.join(heatmaps_dir, f"{ts}_result.jpg")
-    try:
-        save_result(pcb_bgr, yolo_bgr, raw_heatmap, score, label, issues,
-                    result_path, surface_fail=surface_fail, soft_issues=soft_issues)
-        processing_time += time.time() - t0
-        print(f"  Done  ({time.time()-t0:.2f}s)", flush=True)
-        print(f"  Raw    → {raw_path}", flush=True)
-        print(f"  Result → {result_path}", flush=True)
-    except Exception as e:
-        print(f"  [SAVE ERROR] {e}", flush=True)
-    print(f"  Total time: {processing_time:.2f}s\n", flush=True)
+    counts_str = ", ".join(f"{k}:{v}" for k, v in result["detected_counts"].items())
+    if counts_str:
+        print(f"  Detected: [{counts_str}]", flush=True)
+    if result["issues"]:
+        print(f"  [COMPONENT ISSUES] {', '.join(result['issues'])}", flush=True)
+    if result["soft_issues"]:
+        print(f"  [REVIEW] {', '.join(result['soft_issues'])}", flush=True)
+    yolo_status = "YOLO: " + (", ".join(result["issues"]) if result["issues"] else "OK")
+    print(f"  Score: {result['score']:.4f}  [{result['label']}]  {yolo_status}", flush=True)
+    print(f"  Raw    → {raw_path}", flush=True)
+    print(f"  Result → {result['result_path']}", flush=True)
+    print(f"  Timings: {result['timings']}\n", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -906,9 +970,12 @@ def main():
     pc.eval()
     print(f"PatchCore ready on {device}.\n", flush=True)
 
+    profile_label = _profile_label(args.config)
     run_trigger_loop(
         trigger_fn=cli_trigger_loop,
-        callback=lambda: run_inference_pipeline(yolo_model, pc, device, cfg),
+        callback=lambda: run_inference_pipeline(
+            yolo_model, pc, device, cfg, profile_label, args.config
+        ),
     )
 
 
