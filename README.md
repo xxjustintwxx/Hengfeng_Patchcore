@@ -167,6 +167,107 @@ multiple phones).
 
 ---
 
+## Running live on the Jetson Orin Nano
+
+This device (JetPack 6 / L4T 36.4.7, CUDA 12.6, aarch64) has no conda, so it uses a
+plain `venv` instead of the conda setup above. Torch has to come from NVIDIA's
+JetPack wheel index, not plain PyPI — the standard `pip install torch` wheel for
+aarch64 is CPU-only and won't see the GPU.
+
+### 1. Start the environment
+
+Already set up once at `Hengfeng_Patchcore/.venv`. Each new terminal session just
+needs:
+
+```bash
+cd /home/ir/justin/Hengfeng_Patchcore
+source .venv/bin/activate
+```
+
+To rebuild it from scratch (e.g. a fresh SD card/SSD):
+
+```bash
+sudo apt update && sudo apt install -y python3.10-venv python3-pip
+
+cd /home/ir/justin/Hengfeng_Patchcore
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+
+# JetPack 6 / CUDA 12.6 torch build — NOT plain PyPI
+pip install --index-url https://pypi.jetson-ai-lab.io/jp6/cu126/+simple/ torch==2.8.0 torchvision==0.23.0
+
+# opencv-python 4.14+/5.x requires numpy>=2, which torch 2.8's JetPack build
+# doesn't like — pin both down together to a compatible pair
+pip install "numpy<2" "opencv-python==4.11.0.86"
+
+# rest of requirements.txt (torch/torchvision lines already satisfied above)
+pip install click matplotlib pillow pretrainedmodels pyyaml requests timm \
+  scikit-image scikit-learn scipy tqdm ultralytics faiss-cpu flask
+pip install "numpy<2"   # some of the above re-bump numpy to 2.x — pin back down
+
+pip install -e .          # installs the patchcore package from src/
+```
+
+Sanity check after install:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# should print: 2.8.0 True Orin
+```
+
+### 2. Start the app
+
+```bash
+cd /home/ir/justin/Hengfeng_Patchcore
+source .venv/bin/activate
+python app.py --port 5000
+```
+
+Open `http://127.0.0.1:5000` on the Jetson itself, or `http://192.168.0.210:5000`
+from another device on the same LAN. Ctrl-C to stop.
+
+### 3. Free up memory: SSH in from the MacBook instead of using the desktop
+
+This is an 8GB **unified-memory** device — GPU and CPU share the same RAM, and the
+GNOME desktop + Chromium + VS Code running locally can eat 3-4GB, which starves
+PatchCore's CUDA allocations (shows up as `NVML_SUCCESS == r INTERNAL ASSERT
+FAILED` / `NvMapMemAllocInternalTagged ... error 12`). Running headless over SSH
+frees that whole desktop stack back up. SSH is already enabled on this Jetson, so
+from the MacBook:
+
+```bash
+ssh ir@192.168.0.210
+```
+
+(same Wi-Fi network, `192.168.0.0/24`; enter the `ir` account password.)
+
+Once connected over SSH, **temporarily** stop the desktop for this session only —
+this does *not* persist across reboots, it just kills the currently-running
+desktop:
+
+```bash
+sudo systemctl stop gdm3
+```
+
+Then run steps 1-2 above from that same SSH session. Memory freed this way is
+much larger than closing a few browser tabs, since it also drops GNOME Shell,
+Xorg, and every local VS Code/Chromium process, not just Chromium's own tabs.
+
+### 4. Bring the desktop screen back
+
+From the same (or a new) SSH session:
+
+```bash
+sudo systemctl start gdm3
+```
+
+The physical screen/login prompt reappears immediately — no reboot needed. (A
+plain reboot also brings it back on its own, since `stop gdm3` never changed the
+boot-time default — it only affects the currently running session.)
+
+---
+
 ## Workflow
 
 ### 1. Collect raw images
