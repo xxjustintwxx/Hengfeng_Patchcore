@@ -214,7 +214,7 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 20px;
+  padding: 0 32px;
   position: relative;
   color: var(--text-muted);
 }
@@ -222,9 +222,14 @@ header {
 .step:not(:last-child)::after {
   content: "";
   position: absolute;
-  right: -1px;
+  /* The empty gap between this step's content and the next step's is 64px
+     (32px right padding + 32px left padding, adjacent .step boxes sit flush,
+     gap: 0). Line is narrower than that (32px) and centered within it
+     (right: -16px = half the padding), leaving 16px of clear space on each
+     side so it doesn't touch either step's label/circle. */
+  right: -16px;
   top: 50%;
-  width: 40px;
+  width: 32px;
   height: 1px;
   background: var(--border-strong);
   transform: translateY(-50%);
