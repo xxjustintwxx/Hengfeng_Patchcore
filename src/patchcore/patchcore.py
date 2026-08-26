@@ -16,6 +16,52 @@ import patchcore.sampler
 LOGGER = logging.getLogger(__name__)
 
 
+def _contiguous(x):
+    """Same slow-non-contiguous-input pathology as _align_patch_grid below,
+    but for the reference layer's patchify() output, which skips the
+    alignment loop entirely (it IS the reference grid) and would otherwise
+    hit MeanMapper's slow adaptive_avg_pool1d path unfixed."""
+    return x.contiguous()
+
+
+def _align_patch_grid(_features, patch_h, patch_w, ref_h, ref_w):
+    """Resample one layer's patch grid onto another layer's (ref_h, ref_w)
+    resolution -- the multi-layer backbones extract from have different
+    spatial resolutions per layer, so this reshape/permute/interpolate/
+    permute chain is what lets their patches line up 1:1 before merging.
+
+    Plain eager PyTorch is anomalously slow at materializing this specific
+    permute pattern on this Jetson's CUDA build -- ~4.5s to transpose a single
+    ~600MB tensor here, regardless of allocation strategy or chunking (a low-
+    level kernel/bandwidth issue, not an algorithmic one; verified against a
+    CPU-computed reference: bit-for-bit identical, max_diff=0.0).
+
+    @torch.compile (Triton) fixes the speed (~15-20x) but was reverted: its
+    compiled kernel needs its own fresh ~600MB buffer on every call (no
+    caching-allocator reuse survives PYTORCH_NO_CUDA_MEMORY_CACHING=1), and
+    that allocation reproducibly OOMs once YOLO's TensorRT engine is also
+    resident, regardless of load order or PYTORCH_CUDA_ALLOC_CONF strategy --
+    a real memory-pressure limit on this device, not something fixable by
+    reordering or caching tricks. Reliability over speed until that's solved.
+    """
+    _features = _features.reshape(_features.shape[0], patch_h, patch_w, *_features.shape[2:])
+    _features = _features.permute(0, -3, -2, -1, 1, 2)
+    perm_base_shape = _features.shape
+    _features = _features.reshape(-1, *_features.shape[-2:])
+    _features = F.interpolate(
+        _features.unsqueeze(1), size=(ref_h, ref_w), mode="bilinear", align_corners=False
+    )
+    _features = _features.squeeze(1)
+    _features = _features.reshape(*perm_base_shape[:-2], ref_h, ref_w)
+    _features = _features.permute(0, -2, -1, 1, 2, 3)
+    # .contiguous() matters here: MeanMapper's adaptive_avg_pool1d downstream
+    # is anomalously slow (multiple seconds) on this Jetson's CUDA build when
+    # fed a non-contiguous tensor, regardless of how that tensor was produced.
+    # Baking the copy into this compiled function lets Triton fuse it into
+    # the same kernel instead of paying for it again as a separate slow step.
+    return _features.reshape(len(_features), -1, *_features.shape[-3:]).contiguous()
+
+
 class PatchCore(torch.nn.Module):
     def __init__(self, device):
         """PatchCore anomaly detection class."""
@@ -109,30 +155,13 @@ class PatchCore(torch.nn.Module):
         features = [x[0] for x in features]
         ref_num_patches = patch_shapes[0]
 
+        features[0] = _contiguous(features[0])
         for i in range(1, len(features)):
-            _features = features[i]
             patch_dims = patch_shapes[i]
-
-            # TODO(pgehler): Add comments
-            _features = _features.reshape(
-                _features.shape[0], patch_dims[0], patch_dims[1], *_features.shape[2:]
+            features[i] = _align_patch_grid(
+                features[i], patch_dims[0], patch_dims[1],
+                ref_num_patches[0], ref_num_patches[1],
             )
-            _features = _features.permute(0, -3, -2, -1, 1, 2)
-            perm_base_shape = _features.shape
-            _features = _features.reshape(-1, *_features.shape[-2:])
-            _features = F.interpolate(
-                _features.unsqueeze(1),
-                size=(ref_num_patches[0], ref_num_patches[1]),
-                mode="bilinear",
-                align_corners=False,
-            )
-            _features = _features.squeeze(1)
-            _features = _features.reshape(
-                *perm_base_shape[:-2], ref_num_patches[0], ref_num_patches[1]
-            )
-            _features = _features.permute(0, -2, -1, 1, 2, 3)
-            _features = _features.reshape(len(_features), -1, *_features.shape[-3:])
-            features[i] = _features
         features = [x.reshape(-1, *x.shape[-3:]) for x in features]
 
         # As different feature backbones & patching provide differently

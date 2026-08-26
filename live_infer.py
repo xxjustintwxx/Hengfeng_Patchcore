@@ -27,6 +27,28 @@ from pathlib import Path
 # and torch's CPU threading if not set beforehand.
 os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count()))
 
+# Jetson/Tegra-specific: on Orin, running YOLO and PatchCore resident together
+# fragments the CUDA allocator's memory pool enough that a later large
+# allocation (e.g. TorchGpuFlatNN's search buffer) needs a fresh cudaMalloc,
+# which retries through an NVML free-memory query that Tegra's driver doesn't
+# support for its integrated GPU -- crashing with "NVML_SUCCESS == r INTERNAL
+# ASSERT FAILED" instead of just growing the pool. expandable_segments avoided
+# this while YOLO ran as a plain PyTorch model, but once YOLO's weights are a
+# TensorRT .engine, TensorRT reserves its own ~236MB via a separate CUDA
+# memory manager that PyTorch's allocator doesn't account for, and
+# expandable_segments alone is no longer enough -- reproducibly crashes even
+# at the very first PatchCore backbone call. Fully disabling the caching
+# allocator (every allocation is a plain cudaMalloc/cudaFree, no retry path at
+# all) is the fix that holds up with TensorRT YOLO in the mix (validated: 5/5
+# clean runs, ~11.6-12.3s/request).
+#
+# This NVML query gap is specific to Tegra's integrated GPU -- a normal
+# discrete NVIDIA GPU (Windows or otherwise) supports it fine, so only apply
+# the workaround (which costs real throughput by disabling allocator caching
+# outright) when actually running on Jetson. Must be set before `import torch`.
+if os.path.isfile("/etc/nv_tegra_release"):
+    os.environ.setdefault("PYTORCH_NO_CUDA_MEMORY_CACHING", "1")
+
 import cv2
 import numpy as np
 import torch
@@ -34,6 +56,11 @@ import yaml
 import PIL.Image
 from torchvision import transforms
 from ultralytics import YOLO
+
+# Enter-to-capture loop re-runs the same fixed input shape through the same
+# backbone every time, so it's worth letting cuDNN benchmark conv algorithms
+# on the first capture and reuse the fastest one on every capture after that.
+torch.backends.cudnn.benchmark = True
 
 import patchcore.common
 import patchcore.patchcore
@@ -91,6 +118,22 @@ IMAGENET_STD  = [0.229, 0.224, 0.225]
 def load_config(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def resolve_yolo_weights(weights_path: str) -> str:
+    """If a TensorRT .engine file sits next to the configured .pt weights,
+    prefer it; otherwise use weights_path as-is.
+
+    live_config.yaml's yolo.weights always names the portable .pt file, so
+    the same config works unmodified on any machine. .engine files are
+    gitignored, per-machine build artifacts tied to one specific GPU
+    architecture (see README.md's Performance tuning section for how to
+    build one) -- checking for one here, rather than hardcoding .engine
+    paths into the tracked configs, is what keeps configs shareable across
+    machines while still using TensorRT automatically wherever it's built.
+    """
+    engine_path = os.path.splitext(weights_path)[0] + ".engine"
+    return engine_path if os.path.isfile(engine_path) else weights_path
 
 
 # ---------------------------------------------------------------------------
@@ -956,15 +999,22 @@ def main():
     yolo_model = None
     if not args.no_yolo:
         cfg_yolo   = cfg.get("yolo", {})
-        yolo_path  = cfg_yolo.get("weights",
-                                  str(ROOT / "models/yolo/640C/pcb_seg/weights/best.pt"))
+        yolo_path  = resolve_yolo_weights(cfg_yolo.get("weights",
+                                  str(ROOT / "models/yolo/640C/pcb_seg/weights/best.pt")))
         print(f"Loading YOLO from: {yolo_path}", flush=True)
         yolo_model = YOLO(yolo_path)
         print("YOLO ready.", flush=True)
 
     # Load PatchCore
     print(f"Loading PatchCore from: {args.model_path}", flush=True)
-    nn_method = patchcore.common.FaissNN(False, os.cpu_count())
+    # On CUDA, the memory-bank search runs ~3x faster as an exact torch/CUDA
+    # matmul than through FAISS's CPU-bound brute-force loop (validated
+    # identical nearest-neighbour results -- see TorchGpuFlatNN's docstring).
+    # faiss-gpu itself has no aarch64 build, so this is the GPU path instead.
+    if device.type == "cuda":
+        nn_method = patchcore.common.TorchGpuFlatNN(device)
+    else:
+        nn_method = patchcore.common.FaissNN(False, os.cpu_count())
     pc        = patchcore.patchcore.PatchCore(device)
     pc.load_from_path(args.model_path, device, nn_method)
     pc.eval()

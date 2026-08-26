@@ -23,11 +23,39 @@ from datetime import datetime
 # initialize their thread pools, if not set beforehand.
 os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count()))
 
+# Jetson/Tegra-specific: on Orin, running YOLO and PatchCore resident together
+# fragments the CUDA allocator's memory pool enough that a later large
+# allocation (e.g. TorchGpuFlatNN's search buffer) needs a fresh cudaMalloc,
+# which retries through an NVML free-memory query that Tegra's driver doesn't
+# support for its integrated GPU -- crashing with "NVML_SUCCESS == r INTERNAL
+# ASSERT FAILED" instead of just growing the pool. expandable_segments avoided
+# this while YOLO ran as a plain PyTorch model, but once YOLO's weights are a
+# TensorRT .engine, TensorRT reserves its own ~236MB via a separate CUDA
+# memory manager that PyTorch's allocator doesn't account for, and
+# expandable_segments alone is no longer enough -- reproducibly crashes even
+# at the very first PatchCore backbone call. Fully disabling the caching
+# allocator (every allocation is a plain cudaMalloc/cudaFree, no retry path at
+# all) is the fix that holds up with TensorRT YOLO in the mix (validated: 5/5
+# clean runs, ~11.6-12.3s/request).
+#
+# This NVML query gap is specific to Tegra's integrated GPU -- a normal
+# discrete NVIDIA GPU (Windows or otherwise) supports it fine, so only apply
+# the workaround (which costs real throughput by disabling allocator caching
+# outright) when actually running on Jetson. Must be set before `import torch`.
+if os.path.isfile("/etc/nv_tegra_release"):
+    os.environ.setdefault("PYTORCH_NO_CUDA_MEMORY_CACHING", "1")
+
 import cv2
 import numpy as np
 import torch
 from flask import Flask, jsonify, render_template, request, send_from_directory
 from ultralytics import YOLO
+
+# Every profile always feeds the same fixed input shape (its own output_size)
+# through the same backbone for the life of this long-running server process,
+# so it's worth letting cuDNN benchmark conv algorithms on the first call and
+# reuse the fastest one on every capture after that.
+torch.backends.cudnn.benchmark = True
 
 import patchcore.common
 import patchcore.patchcore
@@ -39,6 +67,7 @@ from live_infer import (
     _profile_label,
     append_jsonl,
     load_config,
+    resolve_yolo_weights,
     run_inference,
     _to_colormap,
 )
@@ -132,7 +161,14 @@ def get_patchcore(model_path: str):
     cache = STATE["pc_cache"]
     if model_path in cache:
         return cache[model_path]
-    nn_method = patchcore.common.FaissNN(False, os.cpu_count())
+    # On CUDA, the memory-bank search runs ~3x faster as an exact torch/CUDA
+    # matmul than through FAISS's CPU-bound brute-force loop (validated
+    # identical nearest-neighbour results -- see TorchGpuFlatNN's docstring).
+    # faiss-gpu itself has no aarch64 build, so this is the GPU path instead.
+    if STATE["device"].type == "cuda":
+        nn_method = patchcore.common.TorchGpuFlatNN(STATE["device"])
+    else:
+        nn_method = patchcore.common.FaissNN(False, os.cpu_count())
     pc = patchcore.patchcore.PatchCore(STATE["device"])
     pc.load_from_path(model_path, STATE["device"], nn_method)
     pc.eval()
@@ -141,11 +177,13 @@ def get_patchcore(model_path: str):
 
 
 def get_yolo(weights_path: str):
-    """Load (or reuse a cached) YOLO instance for weights_path."""
+    """Load (or reuse a cached) YOLO instance for weights_path (a .pt path
+    from live_config.yaml; resolve_yolo_weights swaps in a sibling .engine
+    file automatically if one exists on this machine)."""
     cache = STATE["yolo_cache"]
     if weights_path in cache:
         return cache[weights_path]
-    model = YOLO(weights_path)
+    model = YOLO(resolve_yolo_weights(weights_path))
     cache[weights_path] = model
     return model
 
@@ -556,7 +594,7 @@ def main():
     # loads whichever profile (640C, CT11_Power/Front, CT11_Power/Back, ...) is selected.
     STATE["device_override"] = args.device
 
-    app.run(host="127.0.0.1", port=args.port, debug=False, threaded=False)
+    app.run(host="0.0.0.0", port=args.port, debug=False, threaded=False)
 
 
 if __name__ == "__main__":

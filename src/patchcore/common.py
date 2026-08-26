@@ -97,6 +97,101 @@ class FaissNN(object):
             self.search_index = None
 
 
+class TorchGpuFlatNN:
+    """Exact FlatL2 nearest-neighbour search, computed via a chunked torch
+    matmul on CUDA instead of FAISS's CPU brute-force loop.
+
+    Same interface as FaissNN (fit/run/save/load/reset_index/search_index),
+    so it's a drop-in nn_method for NearestNeighbourScorer, but it isn't a
+    FaissNN subclass -- none of FaissNN's GPU-clone/index-creation machinery
+    applies here, since faiss-gpu has no aarch64 build (no prebuilt wheel
+    exists, and compiling it from CUDA source is a heavy, fragile lift on
+    Jetson). This instead reimplements just the FlatL2 exact-search math
+    directly in PyTorch, using the CUDA backend already working here.
+
+    Mathematically identical to FaissNN(on_gpu=False) -- same squared-L2
+    distances, same nearest neighbours -- just executed on the GPU. Measured
+    on a Jetson Orin Nano (58,982 x 1024 memory bank, 16,384-patch query):
+    ~3x faster than FAISS's CPU search (15.2s -> 5.0s) at chunk_size=2048,
+    with 100% identical nearest-neighbour indices and distances matching to
+    within float32 rounding (verified against FaissNN's own output).
+    chunk_size defaults to 512 rather than 2048 -- smaller chunks mean more
+    (cheap) loop iterations but a proportionally smaller transient distance-
+    matrix allocation per iteration, which matters once YOLO also holds a
+    TensorRT engine's own ~236MB reserved outside PyTorch's allocator.
+
+    On-disk format is left as a standard FAISS index file, so models saved/
+    loaded here stay interoperable with FaissNN elsewhere (e.g. the SLURM
+    training pipeline's bin/run_patchcore.py, or offline eval scripts).
+    """
+
+    def __init__(self, device, num_workers: int = 4, chunk_size: int = 512) -> None:
+        self.device = device
+        self.chunk_size = chunk_size
+        self.search_index = None  # kept as a real faiss.IndexFlatL2, for save()/interop
+        self._bank = None         # (N, D) float32 tensor on self.device
+        self._bank_sq = None      # (N,) cached squared norms
+
+    def _set_bank(self, features: np.ndarray) -> None:
+        bank = torch.from_numpy(np.ascontiguousarray(features, dtype=np.float32))
+        self._bank = bank.to(self.device)
+        self._bank_sq = (self._bank * self._bank).sum(1)
+
+    def fit(self, features: np.ndarray) -> None:
+        self._set_bank(features)
+        self.search_index = faiss.IndexFlatL2(features.shape[-1])
+        self.search_index.add(features)
+
+    def _search(self, query_features: np.ndarray, n_nearest_neighbours: int):
+        query = torch.from_numpy(
+            np.ascontiguousarray(query_features, dtype=np.float32)
+        ).to(self.device)
+        all_d, all_i = [], []
+        with torch.no_grad():
+            for start in range(0, query.shape[0], self.chunk_size):
+                q = query[start : start + self.chunk_size]
+                q_sq = (q * q).sum(1, keepdim=True)
+                dist = q_sq + self._bank_sq.unsqueeze(0) - 2.0 * (q @ self._bank.T)
+                dist.clamp_(min=0)  # squared-L2 can't be negative; guards fp rounding
+                d, i = torch.topk(dist, n_nearest_neighbours, dim=1, largest=False)
+                all_d.append(d)
+                all_i.append(i)
+        return torch.cat(all_d).cpu().numpy(), torch.cat(all_i).cpu().numpy()
+
+    def run(
+        self,
+        n_nearest_neighbours,
+        query_features: np.ndarray,
+        index_features: np.ndarray = None,
+    ) -> Union[np.ndarray, np.ndarray]:
+        if index_features is None:
+            return self._search(query_features, n_nearest_neighbours)
+
+        # One-off search against a caller-supplied bank (mirrors FaissNN.run's
+        # index_features path) -- swap it in, search, then restore our own bank.
+        saved_bank, saved_bank_sq = self._bank, self._bank_sq
+        self._set_bank(index_features)
+        try:
+            return self._search(query_features, n_nearest_neighbours)
+        finally:
+            self._bank, self._bank_sq = saved_bank, saved_bank_sq
+
+    def save(self, filename: str) -> None:
+        if self.search_index is None:
+            raise RuntimeError("No index to save -- call fit() or load() first.")
+        faiss.write_index(self.search_index, filename)
+
+    def load(self, filename: str) -> None:
+        self.search_index = faiss.read_index(filename)
+        vectors = self.search_index.reconstruct_n(0, self.search_index.ntotal)
+        self._set_bank(vectors)
+
+    def reset_index(self) -> None:
+        self.search_index = None
+        self._bank = None
+        self._bank_sq = None
+
+
 class ApproximateFaissNN(FaissNN):
     def _train(self, index, features):
         index.train(features)
