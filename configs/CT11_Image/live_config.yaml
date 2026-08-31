@@ -49,7 +49,7 @@ yolo:
     0: 0.85              # Main IC
     1: 0.50              # board
     2: 0.85              # component
-    3: 0.80              # connector
+    3: 0.75              # connector
     4: 0.50              # resistor
     5: 0.85              # screw
   expected_counts:       # exact component count check — NG if any mismatch
@@ -84,7 +84,7 @@ yolo:
 
 inference:
   device: "cuda"        # "cuda", "mps" (Apple Silicon), or "cpu"
-  score_threshold: 210.0  # placeholder — calibrate after seeing scores
+  score_threshold: 260.0  # placeholder — calibrate after seeing scores
 
 output:
   patchcore_model: "models/patchcore/CT11_Image/CT11_Image_WR50_L2-3_PS3_1024_m4_p0.1/models/mvtec_ir_module"

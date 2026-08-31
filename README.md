@@ -165,6 +165,19 @@ Camera: Android phone running the **IP Webcam** app. Set `camera.url` in each
 profile's `live_config.yaml` (they can point at different URLs/ports if you run
 multiple phones).
 
+**Windows, no command line needed:** run `setup_env.bat` once per machine (creates
+the `aoi` conda env and installs everything above), then double-click `run_app.bat`
+any time to start the server and open the dashboard in your browser. **To stop
+it, click the X to close the window** — don't press Ctrl+C, since cmd.exe always
+shows a `Terminate batch job (Y/N)?` confirmation for that (a cmd.exe behavior
+for any `.bat`, not something the script can suppress); closing the window
+directly skips it entirely.
+
+It auto-detects whether the machine has an NVIDIA GPU and falls back to
+`--device cpu` if not — nothing to edit per laptop. `models/` and `configs/`
+still need to be copied onto each new machine separately (see
+[Directory Structure](#directory-structure)).
+
 ---
 
 ## USB webcam capture

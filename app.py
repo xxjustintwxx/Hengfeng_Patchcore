@@ -10,6 +10,7 @@ import argparse
 import base64
 import glob
 import json
+import logging
 import os
 import shutil
 import threading
@@ -571,6 +572,19 @@ def serve_result_image(subpath):
     return send_from_directory(LIVE_RESULTS_DIR, subpath)
 
 
+class _CtrlCHintFilter(logging.Filter):
+    """Extends werkzeug's own "Press CTRL+C to quit" startup line to also
+    mention closing the window. Ctrl+C in a plain cmd.exe run_app.bat session
+    triggers cmd's own "Terminate batch job (Y/N)?" confirmation, which
+    closing the window instead skips entirely -- see run_app.bat."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str) and "Press CTRL+C to quit" in record.msg:
+            record.msg = record.msg.replace(
+                "Press CTRL+C to quit", "Press CTRL+C or close the terminal to quit"
+            )
+        return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Local web UI for YOLO + PatchCore live inference."
@@ -584,6 +598,7 @@ def main():
     # loads whichever profile (640C, CT11_Power/Front, CT11_Power/Back, ...) is selected.
     STATE["device_override"] = args.device
 
+    logging.getLogger("werkzeug").addFilter(_CtrlCHintFilter())
     app.run(host="0.0.0.0", port=args.port, debug=False, threaded=False)
 
 
