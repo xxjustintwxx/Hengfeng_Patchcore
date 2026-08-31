@@ -20,7 +20,7 @@ surface-defect signal.
 ## Pipeline Overview
 
 ```
-Phone camera (IP Webcam)
+Camera (phone via IP Webcam, or a USB webcam — see camera.type)
         ↓
   ROI crop + resize   ← preprocessing.roi / output_size in live_config.yaml
         ↓
@@ -164,6 +164,31 @@ pip install -e .          # installs the patchcore package from src/
 Camera: Android phone running the **IP Webcam** app. Set `camera.url` in each
 profile's `live_config.yaml` (they can point at different URLs/ports if you run
 multiple phones).
+
+---
+
+## USB webcam capture
+
+As an alternative to the phone, a USB/UVC webcam plugged into this machine can
+be used instead. Switch a profile over by setting `camera.type: usb` in its
+`live_config.yaml` — `CT11_Image` is set up this way:
+
+```yaml
+camera:
+  type: usb
+  index: 1      # OpenCV device index of the plugged-in USB camera — on a
+                # laptop, index 0 is usually the built-in webcam, so the
+                # external one often lands on 1
+  width: 2592   # max resolution this camera reports supporting
+  height: 1944  # without these, capture_frame() falls back to its 640x480 default
+```
+
+`warmup_frames` (default 5) and `rotate` (`"90_cw"`/`"90_ccw"`/`"180"`, default
+none) are also available — see `capture.py`'s `capture_snapshot_usb()`.
+
+Everything past capture (ROI crop, YOLO, PatchCore) is unchanged — just re-check
+`preprocessing.roi` against this camera's field of view and resolution, since
+it won't match the phone's framing.
 
 ---
 
@@ -373,7 +398,11 @@ developer mode is never turned on.
 
 Every profile's `configs/<...>/live_config.yaml` has four top-level sections:
 
-`camera`: `url`, `timeout`, `retries`, `retry_delay`, `pre_delay` — phone snapshot HTTP request.
+`camera`: `type` selects the capture backend — `"http"` (default, phone snapshot over
+HTTP: `url`, `timeout`, `retries`, `retry_delay`, `pre_delay`, `rotate` — defaults to
+`"90_cw"`) or `"usb"` (local USB/UVC webcam via OpenCV: `index`, `warmup_frames`,
+`width`, `height`, `retries`, `retry_delay`, `rotate` — defaults to `None`). See
+[USB webcam capture](#usb-webcam-capture).
 
 `preprocessing`: `roi` (`[x, y, w, h]`, must match `preprocess_config.yaml`), `output_size`.
 

@@ -60,7 +60,7 @@ torch.backends.cudnn.benchmark = True
 import patchcore.common
 import patchcore.patchcore
 
-from capture import capture_snapshot
+from capture import capture_frame
 from live_infer import (
     SUPPRESS_VALUE,
     ROOT,
@@ -288,20 +288,10 @@ def api_capture():
         return jsonify({"error": "No profile selected — visit settings first"}), 400
     cam = STATE["cfg"]["camera"]
     try:
-        raw_bgr = capture_snapshot(
-            url=cam["url"],
-            timeout=cam.get("timeout", 3.0),
-            retries=cam.get("retries", 3),
-            retry_delay=cam.get("retry_delay", 0.5),
-            pre_delay=cam.get("pre_delay", 0.3),
-        )
+        raw_bgr = capture_frame(cam)
     except RuntimeError as e:
         print(f"[CAPTURE ERROR] {e}", flush=True)
-        return jsonify({
-            "error": f"Can't reach the camera at {cam['url']}. "
-                     "Check that IP Webcam is running on the phone and the "
-                     "USB/port-forward connection is active."
-        }), 502
+        return jsonify({"error": str(e)}), 502
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     captures_dir = STATE["cfg"]["output"]["captures_dir"]

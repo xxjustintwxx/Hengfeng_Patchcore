@@ -4,16 +4,29 @@
 # Class taxonomy / expected counts / confidence thresholds mirror
 # yolo/CT11_Image/infer_ct11_image.py — calibrate after live captures are available.
 
+# camera:
+#   url: "http://192.168.0.135:8080/shot.jpg"
+#   timeout: 1.5          # seconds per HTTP request
+#   retries: 2            # total attempts before giving up
+#   retry_delay: 0.5      # seconds between failed attempts
+#   pre_delay: 0.3        # seconds to wait before each capture (exposure safety margin)
+  
 camera:
-  url: "http://192.168.0.135:8080/shot.jpg"
-  timeout: 1.5          # seconds per HTTP request
-  retries: 2            # total attempts before giving up
-  retry_delay: 0.5      # seconds between failed attempts
-  pre_delay: 0.3        # seconds to wait before each capture (exposure safety margin)
+  type: usb
+  index: 1  # "HD USB Camera" (VID_32E4) — the plugged-in USB camera, not the
+            # built-in "USB2.0 HD UVC WebCam" (VID_13D3) at index 0
+  width: 2592   # max resolution this camera reports supporting
+  height: 1944  # without these, capture_frame() falls back to its 640x480 default
 
 preprocessing:
   # ROI crop in pixels: [x, y, width, height] — must match configs/CT11_Image/preprocess_config.yaml
-  roi: [700, 1500, 900, 900]
+  # roi: [700, 1500, 900, 900]  # old value, calibrated for the phone photo
+  # TEMPORARY placeholder: a centered 900x900 box in this camera's 2592x1944
+  # capture frame, just so the green ROI box is visible on-screen at all.
+  # Not calibrated to the PCB yet -- once the USB camera is mounted over the
+  # actual inspection fixture, recheck this against a real capture and adjust
+  # x/y/w/h to actually frame the board.
+  roi: [580, 280, 1500, 1500]
   # Output resolution after crop + resize — must match the trained PatchCore model
   output_size: [1024, 1024]
 
@@ -33,12 +46,12 @@ yolo:
     5: [180,   0, 255]   # screw     — purple
   label_classes: [0, 2, 3, 5]   # skip board (structural) and resistor (40 is too many)
   class_conf:            # per-class confidence override (must be >= conf)
-    0: 0.25              # Main IC
+    0: 0.85              # Main IC
     1: 0.50              # board
-    2: 0.50              # component
-    3: 0.25              # connector
+    2: 0.85              # component
+    3: 0.80              # connector
     4: 0.50              # resistor
-    5: 0.25              # screw
+    5: 0.85              # screw
   expected_counts:       # exact component count check — NG if any mismatch
     0: 2                 # Main IC
     2: 10                # component

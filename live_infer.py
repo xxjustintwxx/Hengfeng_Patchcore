@@ -65,7 +65,7 @@ torch.backends.cudnn.benchmark = True
 import patchcore.common
 import patchcore.patchcore
 
-from capture import capture_snapshot
+from capture import capture_frame
 
 ROOT = Path(__file__).resolve().parent
 
@@ -868,13 +868,7 @@ def run_inference_pipeline(yolo_model, pc, device, cfg, profile_label, config_pa
     print(f"[{ts}] Step 1/2  Capturing from camera...", flush=True)
     t0 = time.time()
     try:
-        raw_bgr = capture_snapshot(
-            url=cam["url"],
-            timeout=cam.get("timeout", 3.0),
-            retries=cam.get("retries", 3),
-            retry_delay=cam.get("retry_delay", 0.5),
-            pre_delay=cam.get("pre_delay", 0.3),
-        )
+        raw_bgr = capture_frame(cam)
     except RuntimeError as e:
         print(f"  [CAPTURE ERROR] {e}", flush=True)
         return
