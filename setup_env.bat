@@ -35,12 +35,22 @@ if not defined CONDA_EXE (
 echo Using conda: %CONDA_EXE%
 echo.
 
-echo Creating conda environment "aoi" (Python 3.10)...
-call "%CONDA_EXE%" create -n aoi python=3.10 -y
+rem "conda create -n aoi" on an ALREADY-EXISTING env doesn't error or ask --
+rem it silently wipes and rebuilds it, taking every installed package with
+rem it. Check first and skip creation if it's already there; re-running this
+rem script (e.g. after a git pull) then just re-syncs pip packages below,
+rem instead of destroying whatever was already installed.
+call "%CONDA_EXE%" env list | findstr /r /c:"^aoi " /c:"^aoi$" >nul
 if errorlevel 1 (
-    echo [ERROR] "conda create" failed -- see the output above.
-    pause
-    exit /b 1
+    echo Creating conda environment "aoi" ^(Python 3.10^)...
+    call "%CONDA_EXE%" create -n aoi python=3.10 -y
+    if errorlevel 1 (
+        echo [ERROR] "conda create" failed -- see the output above.
+        pause
+        exit /b 1
+    )
+) else (
+    echo Environment "aoi" already exists -- skipping creation, just re-syncing packages.
 )
 
 echo.
