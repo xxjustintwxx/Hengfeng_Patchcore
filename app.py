@@ -580,7 +580,7 @@ class _CtrlCHintFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str) and "Press CTRL+C to quit" in record.msg:
             record.msg = record.msg.replace(
-                "Press CTRL+C to quit", "Press CTRL+C or close the terminal to quit"
+                "Press CTRL+C to quit", "Close the terminal or Press CTRL+C to quit"
             )
         return True
 
